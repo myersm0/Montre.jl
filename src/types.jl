@@ -1,3 +1,6 @@
+const _exiting = Ref(false)
+atexit(() -> _exiting[] = true)
+
 struct Hit
 	span::UnitRange{Int}
 	document_index::Int
@@ -29,8 +32,8 @@ mutable struct Corpus
 	function Corpus(pointer::Ptr{Nothing})
 		corpus = new(pointer)
 		finalizer(corpus) do c
-			if c.pointer != C_NULL
-				FFI.corpus_close(c.pointer)
+			if !_exiting[] && c.pointer != C_NULL
+				corpus_close(c.pointer)
 				c.pointer = C_NULL
 			end
 		end
@@ -45,8 +48,8 @@ mutable struct HitList
 	function HitList(pointer::Ptr{Nothing}, corpus::Corpus)
 		hitlist = new(pointer, corpus)
 		finalizer(hitlist) do h
-			if h.pointer != C_NULL
-				FFI.hitlist_free(h.pointer)
+			if !_exiting[] && h.pointer != C_NULL
+				hitlist_free(h.pointer)
 				h.pointer = C_NULL
 			end
 		end
