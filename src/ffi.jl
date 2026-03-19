@@ -146,6 +146,22 @@ function query(pointer::Ptr{Nothing}, cql::AbstractString)
 	return result
 end
 
+function query_in_component(pointer::Ptr{Nothing}, cql::AbstractString, component::AbstractString)
+	result = ccall(
+		(:montre_query_in_component, libmontre),
+		Ptr{Nothing},
+		(Ptr{Nothing}, Cstring, Cstring),
+		pointer,
+		cql,
+		component,
+	)
+	if result == C_NULL
+		check_error()
+		error("Montre: query failed")
+	end
+	return result
+end
+
 function hitlist_free(pointer::Ptr{Nothing})
 	ccall((:montre_hitlist_free, libmontre), Cvoid, (Ptr{Nothing},), pointer)
 end
@@ -246,6 +262,53 @@ function hitlist_texts(hits::Ptr{Nothing}, corpus::Ptr{Nothing}, layer::Abstract
 		out_len[],
 	)
 	return result
+end
+
+function context_tokens(
+	hits::Ptr{Nothing}, corpus::Ptr{Nothing},
+	window::Integer, layer::AbstractString,
+)
+	out_len = Ref{UInt64}(0)
+	out_positions = Ref{Ptr{Int32}}(C_NULL)
+	out_tokens = Ref{Ptr{Ptr{Cchar}}}(C_NULL)
+	out_offsets = Ref{Ptr{UInt64}}(C_NULL)
+
+	ccall(
+		(:montre_context_tokens, libmontre),
+		Cvoid,
+		(Ptr{Nothing}, Ptr{Nothing}, UInt64, Cstring,
+		 Ptr{Ptr{Int32}}, Ptr{Ptr{Ptr{Cchar}}}, Ptr{Ptr{UInt64}}, Ptr{UInt64}),
+		hits,
+		corpus,
+		UInt64(window),
+		layer,
+		out_positions,
+		out_tokens,
+		out_offsets,
+		out_len,
+	)
+
+	n = Int(out_len[])
+	positions_ptr = out_positions[]
+	tokens_ptr = out_tokens[]
+	offsets_ptr = out_offsets[]
+
+	if tokens_ptr == C_NULL || n == 0
+		check_error()
+		return (positions = Int32[], tokens = String[], offsets = Int[])
+	end
+
+	positions = [unsafe_load(positions_ptr, i) for i in 1:n]
+	tokens = [unsafe_string(unsafe_load(tokens_ptr, i)) for i in 1:n]
+
+	n_hits = Int(hitlist_len(hits))
+	offsets = [Int(unsafe_load(offsets_ptr, i)) for i in 1:n_hits + 1]
+
+	ccall((:montre_i32_array_free, libmontre), Cvoid, (Ptr{Int32}, UInt64), positions_ptr, UInt64(n))
+	ccall((:montre_string_array_free, libmontre), Cvoid, (Ptr{Ptr{Cchar}}, UInt64), tokens_ptr, UInt64(n))
+	ccall((:montre_u64_array_free, libmontre), Cvoid, (Ptr{UInt64}, UInt64), offsets_ptr, UInt64(n_hits + 1))
+
+	return (; positions, tokens, offsets)
 end
 
 # ---- alignments ----
