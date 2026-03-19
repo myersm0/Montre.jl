@@ -1,3 +1,15 @@
+"""
+	query(corpus, cql; component=nothing) -> HitList
+	query(corpus, cql::CQL; component=nothing) -> HitList
+
+Run a CQL query and return a [`HitList`](@ref).
+Optionally restrict to a named `component`.
+
+```julia
+hits = query(corpus, cql"[pos='ADJ'] [pos='NOUN']")
+hits = query(corpus, cql"[pos='NOUN']"; component="baudelaire-fr")
+```
+"""
 function query(corpus::Corpus, cql::AbstractString; component::Union{AbstractString, Nothing} = nothing)
 	pointer = if component === nothing
 		query(corpus.pointer, cql)
@@ -9,6 +21,11 @@ function query(corpus::Corpus, cql::AbstractString; component::Union{AbstractStr
 	return hitlist
 end
 
+"""
+	count(corpus, cql; component=nothing) -> Int
+
+Number of hits for a CQL query, without materializing a full [`HitList`](@ref).
+"""
 function Base.count(corpus::Corpus, cql::AbstractString; component::Union{AbstractString, Nothing} = nothing)
 	if component === nothing
 		Int(query_count(corpus.pointer, cql))
@@ -44,12 +61,37 @@ end
 
 # ---- bulk text extraction ----
 
+"""
+	texts(hitlist; layer="word") -> Vector{String}
+
+Matched text for every hit, extracted in a single bulk FFI call.
+Use `layer` to select the annotation layer (e.g. `"lemma"`, `"pos"`).
+
+```julia
+texts(hits)                  # word forms
+texts(hits; layer="lemma")   # lemma forms
+```
+"""
 function texts(hitlist::HitList; layer::AbstractString = "word")
 	hitlist_texts(hitlist.pointer, hitlist.corpus.pointer, layer)
 end
 
 # ---- projection ----
 
+"""
+	project(corpus, hitlist, alignment) -> HitList
+	project(hitlist, alignment) -> HitList
+	project(corpus, cql, alignment) -> HitList
+
+Project hits through a named alignment to the target component.
+Returns a new [`HitList`](@ref) of target-side spans.
+
+```julia
+fr_hits = query(corpus, cql"[lemma='âme']"; component="maupassant-fr")
+en_hits = project(fr_hits, "labse")
+texts(en_hits)
+```
+"""
 function project(corpus::Corpus, hitlist::HitList, alignment::AbstractString)
 	pointer = project(corpus.pointer, hitlist.pointer, alignment)
 	projected = HitList(pointer, corpus)
@@ -65,6 +107,19 @@ end
 
 # ---- concordance ----
 
+"""
+	concordance(corpus, hitlist; context=5, layer="word", limit=20) -> Concordance
+	concordance(corpus, cql; component=nothing, ...) -> Concordance
+	concordance(hitlist; ...) -> Concordance
+
+KWIC (Key Word In Context) display of query results.
+`context` is the number of tokens on each side of the match.
+
+```julia
+concordance(corpus, cql"[lemma='âme']"; limit=10)
+concordance(hits; context=8)
+```
+"""
 function concordance(
 	corpus::Corpus,
 	hitlist::HitList;
@@ -109,6 +164,20 @@ concordance(hitlist::HitList; kwargs...) = concordance(hitlist.corpus, hitlist; 
 
 # ---- frequency ----
 
+"""
+	frequency(corpus, hitlist; by="word") -> Vector{NamedTuple}
+	frequency(corpus, cql; by="word", component=nothing) -> Vector{NamedTuple}
+	frequency(hitlist; by="word") -> Vector{NamedTuple}
+
+Frequency table of matched forms, sorted descending.
+Use `by` to count by a specific layer (e.g. `"lemma"`, `"pos"`).
+Returns a vector of `(; value, count)` named tuples (Tables.jl-compatible).
+
+```julia
+frequency(corpus, cql"[pos='NOUN']"; by="lemma")
+frequency(hits; by="lemma")
+```
+"""
 function frequency(corpus::Corpus, hitlist::HitList; by::AbstractString = "word")
 	forms = texts(hitlist; layer = by)
 	counts = Dict{String, Int}()
@@ -126,6 +195,22 @@ frequency(hitlist::HitList; kwargs...) = frequency(hitlist.corpus, hitlist; kwar
 
 # ---- collocates ----
 
+"""
+	collocates(corpus, hitlist; window=5, layer="lemma", positional=false)
+	collocates(corpus, cql; component=nothing, ...)
+	collocates(hitlist; ...)
+
+Context words co-occurring with query hits within a ±`window` token span.
+
+With `positional=false` (default), returns `(; token, count)` tuples sorted by frequency.
+With `positional=true`, returns `(; token, position, count)` tuples where
+`position` is the offset relative to the match (negative = left, positive = right).
+
+```julia
+collocates(hits; window=5, layer="lemma")
+collocates(hits; window=5, layer="lemma", positional=true)
+```
+"""
 function collocates(
 	corpus::Corpus,
 	hitlist::HitList;
