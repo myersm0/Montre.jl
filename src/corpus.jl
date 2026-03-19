@@ -1,10 +1,10 @@
-function open_corpus(path::AbstractString)
+function open(path::AbstractString)
 	pointer = corpus_open(path)
 	return Corpus(pointer)
 end
 
-function open_corpus(f::Function, path::AbstractString)
-	corpus = open_corpus(path)
+function open(f::Function, path::AbstractString)
+	corpus = open(path)
 	try
 		f(corpus)
 	finally

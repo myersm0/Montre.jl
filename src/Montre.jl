@@ -11,29 +11,16 @@ else
 end
 
 include("types.jl")
-include("ffi.jl")
-include("corpus.jl")
-include("query.jl")
-include("tables.jl")
+export Corpus, HitList, Hit, Component, Alignment, ConcordanceLine
 
-export Corpus,
-	Hit,
-	HitList,
-	Component,
-	Alignment,
-	ConcordanceLine,
-	open_corpus,
-	token_count,
-	layers,
-	documents,
-	components,
-	alignments,
-	annotation,
-	span_text,
-	texts,
-	query,
-	concordance,
-	frequency,
-	project
+include("ffi.jl")
+
+include("corpus.jl")
+export token_count, layers, documents, components, alignments, annotation, span_text
+
+include("query.jl")
+export query, texts, concordance, frequency, project
+
+include("tables.jl")
 
 end

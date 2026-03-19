@@ -28,7 +28,7 @@ This compiles `montre-ffi` and writes the shared library path for Julia to load 
 ```julia
 using Montre
 
-corpus = open_corpus("./my-corpus")
+corpus = Montre.open("./my-corpus")
 
 # inspect
 token_count(corpus)
@@ -61,7 +61,7 @@ close(corpus)
 A `do`-block form is also available for automatic cleanup:
 
 ```julia
-open_corpus("./my-corpus") do corpus
+Montre.open("./my-corpus") do corpus
     hits = query(corpus, """[pos="NOUN"]""")
     println(length(hits), " hits")
 end
@@ -86,7 +86,7 @@ df = DataFrame(concordance(corpus, """[lemma="noir"]"""))
 
 ## API summary
 
-**Corpus lifecycle:** `open_corpus`, `close`, `isopen`
+**Corpus lifecycle:** `Montro.open`, `close`, `isopen`
 
 **Inspection:** `token_count`, `layers`, `documents`, `components`, `alignments`, `annotation`, `span_text`
 
