@@ -109,8 +109,7 @@ concordance(hitlist::HitList; kwargs...) = concordance(hitlist.corpus, hitlist; 
 
 # ---- frequency ----
 
-function frequency(corpus::Corpus, cql::AbstractString; by::AbstractString = "word", component::Union{AbstractString, Nothing} = nothing)
-	hitlist = query(corpus, cql; component)
+function frequency(corpus::Corpus, hitlist::HitList; by::AbstractString = "word")
 	forms = texts(hitlist; layer = by)
 	counts = Dict{String, Int}()
 	for form in forms
@@ -118,6 +117,12 @@ function frequency(corpus::Corpus, cql::AbstractString; by::AbstractString = "wo
 	end
 	sort!([(; value, count) for (value, count) in counts]; by = last, rev = true)
 end
+
+function frequency(corpus::Corpus, cql::AbstractString; by::AbstractString = "word", component::Union{AbstractString, Nothing} = nothing)
+	frequency(corpus, query(corpus, cql; component); by = by)
+end
+
+frequency(hitlist::HitList; kwargs...) = frequency(hitlist.corpus, hitlist; kwargs...)
 
 # ---- collocates ----
 
