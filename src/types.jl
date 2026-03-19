@@ -26,6 +26,15 @@ struct ConcordanceLine
 	position::Int
 end
 
+struct CQL
+	query::String
+	CQL(s::AbstractString) = new(replace(s, "'" => "\""))
+end
+
+macro cql_str(s)
+	:(CQL($s))
+end
+
 mutable struct Corpus
 	pointer::Ptr{Nothing}
 

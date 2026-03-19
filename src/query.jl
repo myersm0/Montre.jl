@@ -120,3 +120,15 @@ function Base.show(io::IO, line::ConcordanceLine)
 	print(io, lpad(line.left, 30), " >>> ", line.match_text, " <<< ")
 	print(io, line.right)
 end
+
+function Base.show(io::IO, cql::CQL)
+	print(io, "cql\"", replace(cql.query, "\"" => "'"), "\"")
+end
+
+# ---- CQL dispatch ----
+
+query(corpus::Corpus, cql::CQL) = query(corpus, cql.query)
+Base.count(corpus::Corpus, cql::CQL) = count(corpus, cql.query)
+concordance(corpus::Corpus, cql::CQL; kwargs...) = concordance(corpus, cql.query; kwargs...)
+frequency(corpus::Corpus, cql::CQL; kwargs...) = frequency(corpus, cql.query; kwargs...)
+project(corpus::Corpus, cql::CQL, alignment::AbstractString) = project(corpus, cql.query, alignment)

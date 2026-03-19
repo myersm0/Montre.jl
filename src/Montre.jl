@@ -11,7 +11,7 @@ else
 end
 
 include("types.jl")
-export Corpus, HitList, Hit, Component, Alignment, ConcordanceLine
+export Corpus, HitList, Hit, Component, Alignment, ConcordanceLine, CQL, @cql_str
 
 include("ffi.jl")
 
