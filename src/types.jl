@@ -26,6 +26,17 @@ struct ConcordanceLine
 	position::Int
 end
 
+struct Concordance
+	lines::Vector{ConcordanceLine}
+end
+
+Base.length(c::Concordance) = length(c.lines)
+Base.getindex(c::Concordance, i) = c.lines[i]
+Base.iterate(c::Concordance, s...) = iterate(c.lines, s...)
+Base.firstindex(c::Concordance) = 1
+Base.lastindex(c::Concordance) = length(c.lines)
+Base.eltype(::Type{Concordance}) = ConcordanceLine
+
 struct CQL
 	query::String
 	CQL(s::AbstractString) = new(replace(s, "'" => "\""))

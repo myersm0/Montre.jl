@@ -65,7 +65,7 @@ function concordance(
 	total = min(length(hitlist), limit)
 	token_total = token_count(corpus)
 
-	map(1:total) do i
+	lines = map(1:total) do i
 		hit = hitlist[i]
 		left_start = max(first(hit.span) - context, 0)
 		right_end = min(last(hit.span) + 1 + context, token_total)
@@ -87,6 +87,8 @@ function concordance(
 			first(hit.span),
 		)
 	end
+
+	Concordance(lines)
 end
 
 function concordance(corpus::Corpus, cql::AbstractString; kwargs...)
@@ -115,14 +117,54 @@ function Base.show(io::IO, hit::Hit)
 	print(io, "Hit($(first(hit.span)):$(last(hit.span)))")
 end
 
-function Base.show(io::IO, line::ConcordanceLine)
-	print(io, rpad(line.document, 20), " ", lpad(string(line.position), 8), ": ")
-	print(io, lpad(line.left, 30), " >>> ", line.match_text, " <<< ")
-	print(io, line.right)
-end
-
 function Base.show(io::IO, cql::CQL)
 	print(io, "cql\"", replace(cql.query, "\"" => "'"), "\"")
+end
+
+function Base.show(io::IO, line::ConcordanceLine)
+	print(io, lpad(line.left, 30), "  ", "\e[1m", line.match_text, "\e[0m", "  ", line.right)
+end
+
+function _truncate(s::AbstractString, width::Int)
+	textwidth(s) <= width && return s
+	chars = collect(s)
+	w = 0
+	for (i, c) in enumerate(chars)
+		w += textwidth(c)
+		if w > width - 1
+			return String(chars[1:i-1]) * "…"
+		end
+	end
+	return s
+end
+
+function Base.show(io::IO, ::MIME"text/plain", conc::Concordance)
+	n = length(conc)
+	n == 0 && (print(io, "Concordance (empty)"); return)
+
+	lines = conc.lines
+	term_width = displaysize(io)[2]
+
+	doc_width = min(maximum(textwidth(l.document) for l in lines), 24)
+	match_width = min(maximum(textwidth(l.match_text) for l in lines), 30)
+
+	fixed = doc_width + match_width + 6
+	remaining = max(term_width - fixed, 20)
+	side_width = remaining ÷ 2
+
+	println(io, "Concordance ($(n) lines)")
+	for line in lines
+		doc = _truncate(line.document, doc_width)
+		left = _truncate(line.left, side_width)
+		match = _truncate(line.match_text, match_width)
+		right = _truncate(line.right, side_width)
+
+		print(io, "\e[3m", rpad(doc, doc_width), "\e[0m")
+		print(io, " ", lpad(left, side_width))
+		print(io, " \e[1m", match, "\e[0m ")
+		print(io, rpad(right, side_width))
+		line !== last(lines) && println(io)
+	end
 end
 
 # ---- CQL dispatch ----

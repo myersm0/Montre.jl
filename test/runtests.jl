@@ -44,10 +44,10 @@ import Tables
 		@test Tables.getcolumn(line, 3) == "le vieux"
 		@test Tables.getcolumn(line, 5) == "dormait"
 
-		lines = [line]
-		@test Tables.istable(typeof(lines))
-		@test Tables.rowaccess(typeof(lines))
-		schema = Tables.schema(lines)
+		conc = Concordance([line])
+		@test Tables.istable(typeof(conc))
+		@test Tables.rowaccess(typeof(conc))
+		schema = Tables.schema(conc)
 		@test schema.names == (:document, :position, :left, :match_text, :right)
 		@test schema.types == (String, Int, String, String, String)
 	end
@@ -131,10 +131,11 @@ import Tables
 		@testset "concordance" begin
 			corpus = Montre.open(corpus_path)
 
-			lines = concordance(corpus, """[pos="NOUN"]"""; limit=3)
-			@test length(lines) <= 3
-			@test lines[1] isa ConcordanceLine
-			@test lines[1].match_text != ""
+			conc = concordance(corpus, """[pos="NOUN"]"""; limit=3)
+			@test conc isa Concordance
+			@test length(conc) <= 3
+			@test conc[1] isa ConcordanceLine
+			@test conc[1].match_text != ""
 
 			close(corpus)
 		end

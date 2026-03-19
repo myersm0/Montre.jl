@@ -24,16 +24,16 @@ end
 
 Tables.getcolumn(hit::Hit, ::Type, col::Int, ::Symbol) = Tables.getcolumn(hit, col)
 
-# ---- Vector{ConcordanceLine} as table ----
+# ---- Concordance as table ----
 
-Tables.istable(::Type{Vector{ConcordanceLine}}) = true
-Tables.rowaccess(::Type{Vector{ConcordanceLine}}) = true
-Tables.rows(lines::Vector{ConcordanceLine}) = lines
+Tables.istable(::Type{Concordance}) = true
+Tables.rowaccess(::Type{Concordance}) = true
+Tables.rows(conc::Concordance) = conc.lines
 
 const concordance_columns = (:document, :position, :left, :match_text, :right)
 const concordance_types = (String, Int, String, String, String)
 
-Tables.schema(::Vector{ConcordanceLine}) = Tables.Schema(concordance_columns, concordance_types)
+Tables.schema(::Concordance) = Tables.Schema(concordance_columns, concordance_types)
 Tables.columnnames(::ConcordanceLine) = concordance_columns
 
 Tables.getcolumn(line::ConcordanceLine, name::Symbol) = getfield(line, name)
