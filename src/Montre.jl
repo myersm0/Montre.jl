@@ -19,8 +19,9 @@ include("corpus.jl")
 export token_count, layers, documents, components, alignments, annotation, span_text
 
 include("query.jl")
-export query, texts, concordance, frequency, project
+export query, texts, concordance, frequency, collocates, project
 
 include("tables.jl")
 
 end
+

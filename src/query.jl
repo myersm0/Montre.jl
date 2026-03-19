@@ -1,12 +1,20 @@
-function query(corpus::Corpus, cql::AbstractString)
-	pointer = query(corpus.pointer, cql)
+function query(corpus::Corpus, cql::AbstractString; component::Union{AbstractString, Nothing} = nothing)
+	pointer = if component === nothing
+		query(corpus.pointer, cql)
+	else
+		query_in_component(corpus.pointer, cql, component)
+	end
 	hitlist = HitList(pointer, corpus)
 	hitlist_populate_context(hitlist.pointer, corpus.pointer)
 	return hitlist
 end
 
-function Base.count(corpus::Corpus, cql::AbstractString)
-	Int(query_count(corpus.pointer, cql))
+function Base.count(corpus::Corpus, cql::AbstractString; component::Union{AbstractString, Nothing} = nothing)
+	if component === nothing
+		Int(query_count(corpus.pointer, cql))
+	else
+		length(query(corpus, cql; component))
+	end
 end
 
 # ---- HitList iteration and indexing ----
@@ -48,6 +56,8 @@ function project(corpus::Corpus, hitlist::HitList, alignment::AbstractString)
 	hitlist_populate_context(projected.pointer, corpus.pointer)
 	return projected
 end
+
+project(hitlist::HitList, alignment::AbstractString) = project(hitlist.corpus, hitlist, alignment)
 
 function project(corpus::Corpus, cql::AbstractString, alignment::AbstractString)
 	project(corpus, query(corpus, cql), alignment)
@@ -91,14 +101,16 @@ function concordance(
 	Concordance(lines)
 end
 
-function concordance(corpus::Corpus, cql::AbstractString; kwargs...)
-	concordance(corpus, query(corpus, cql); kwargs...)
+function concordance(corpus::Corpus, cql::AbstractString; component::Union{AbstractString, Nothing} = nothing, kwargs...)
+	concordance(corpus, query(corpus, cql; component); kwargs...)
 end
+
+concordance(hitlist::HitList; kwargs...) = concordance(hitlist.corpus, hitlist; kwargs...)
 
 # ---- frequency ----
 
-function frequency(corpus::Corpus, cql::AbstractString; by::AbstractString = "word")
-	hitlist = query(corpus, cql)
+function frequency(corpus::Corpus, cql::AbstractString; by::AbstractString = "word", component::Union{AbstractString, Nothing} = nothing)
+	hitlist = query(corpus, cql; component)
 	forms = texts(hitlist; layer = by)
 	counts = Dict{String, Int}()
 	for form in forms
@@ -106,6 +118,41 @@ function frequency(corpus::Corpus, cql::AbstractString; by::AbstractString = "wo
 	end
 	sort!([(; value, count) for (value, count) in counts]; by = last, rev = true)
 end
+
+# ---- collocates ----
+
+function collocates(
+	corpus::Corpus,
+	hitlist::HitList;
+	window::Integer = 5,
+	layer::AbstractString = "lemma",
+	positional::Bool = false,
+)
+	raw = context_tokens(hitlist.pointer, corpus.pointer, window, layer)
+
+	if positional
+		counts = Dict{Tuple{String, Int}, Int}()
+		for (pos, tok) in zip(raw.positions, raw.tokens)
+			key = (tok, Int(pos))
+			counts[key] = get(counts, key, 0) + 1
+		end
+		result = [(; token, position, count) for ((token, position), count) in counts]
+		sort!(result; by = x -> -x.count)
+	else
+		counts = Dict{String, Int}()
+		for tok in raw.tokens
+			counts[tok] = get(counts, tok, 0) + 1
+		end
+		result = [(; token, count) for (token, count) in counts]
+		sort!(result; by = last, rev = true)
+	end
+end
+
+function collocates(corpus::Corpus, cql::AbstractString; component::Union{AbstractString, Nothing} = nothing, kwargs...)
+	collocates(corpus, query(corpus, cql; component); kwargs...)
+end
+
+collocates(hitlist::HitList; kwargs...) = collocates(hitlist.corpus, hitlist; kwargs...)
 
 # ---- display ----
 
@@ -169,8 +216,9 @@ end
 
 # ---- CQL dispatch ----
 
-query(corpus::Corpus, cql::CQL) = query(corpus, cql.query)
-Base.count(corpus::Corpus, cql::CQL) = count(corpus, cql.query)
+query(corpus::Corpus, cql::CQL; kwargs...) = query(corpus, cql.query; kwargs...)
+Base.count(corpus::Corpus, cql::CQL; kwargs...) = count(corpus, cql.query; kwargs...)
 concordance(corpus::Corpus, cql::CQL; kwargs...) = concordance(corpus, cql.query; kwargs...)
 frequency(corpus::Corpus, cql::CQL; kwargs...) = frequency(corpus, cql.query; kwargs...)
+collocates(corpus::Corpus, cql::CQL; kwargs...) = collocates(corpus, cql.query; kwargs...)
 project(corpus::Corpus, cql::CQL, alignment::AbstractString) = project(corpus, cql.query, alignment)
