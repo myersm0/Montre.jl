@@ -86,7 +86,7 @@ df = DataFrame(concordance(corpus, """[lemma="noir"]"""))
 
 ## API summary
 
-**Corpus lifecycle:** `Montro.open`, `close`, `isopen`
+**Corpus lifecycle:** `Montre.open`, `close`, `isopen`
 
 **Inspection:** `token_count`, `layers`, `documents`, `components`, `alignments`, `annotation`, `span_text`
 
