@@ -200,4 +200,4 @@ Text and annotation data (word forms, lemmas, POS tags) are fetched on demand wh
 
 ## License
 
-MIT
+Apache-2.0
