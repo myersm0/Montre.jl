@@ -12,23 +12,29 @@ using Montre
 corpus_path = expanduser("~/path/to/your-corpus")
 corpus = Montre.open(corpus_path)
 
-## what's in here?
+# ---- what's in here? ----
 
 corpus
-components(corpus)
-alignments(corpus)
+components(corpus)     # now includes per-component token counts
+alignments(corpus)     # now includes layer info, directionality, edge counts
 layers(corpus)
+features(corpus)       # decomposed morphological feature layers (feats.*)
+span_layers(corpus)    # sentence, document, paragraph, etc.
 
-## Basic querying
+# ---- vocabulary exploration ----
+
+vocabulary(corpus, "pos")          # all POS tags in the corpus
+length(vocabulary(corpus, "lemma"))   # how many distinct lemmas?
+
+# ---- basic querying ----
 
 hits = query(corpus, cql"[pos='NOUN']")
 concordance(hits; limit=10)
 
-# adjective-noun pairs
 pairs = query(corpus, cql"[pos='ADJ'] [pos='NOUN']")
-frequency(corpus, cql"[pos='ADJ'] [pos='NOUN']"; by="word")
+frequency(pairs; by="word")
 
-## component-filtered queries
+# ---- component-filtered queries ----
 
 fr_nouns = frequency(corpus, cql"[pos='NOUN']"; by="lemma", component="maupassant-fr")
 first(fr_nouns, 20)
@@ -36,38 +42,66 @@ first(fr_nouns, 20)
 en_nouns = frequency(corpus, cql"[pos='NOUN']"; by="lemma", component="maupassant-en")
 first(en_nouns, 20)
 
-## multi-attribute queries
+# count without materializing
+count(corpus, cql"[pos='VERB']"; component="maupassant-fr")
 
-# find "âme" used as a noun
+# ---- multi-attribute queries ----
+
 ame = query(corpus, cql"[lemma='âme' & pos='NOUN']"; component="maupassant-fr")
 concordance(ame; limit=10)
 
-# color adjectives via regex alternation
-colors = query(corpus, cql"[lemma=/^(noir|blanc|rouge|bleu|vert)$/ & pos!='ADJ']"; component="maupassant-fr")
+colors = query(corpus, cql"[lemma=/^(noir|blanc|rouge|bleu|vert)$/ & pos='ADJ']"; component="maupassant-fr")
 frequency(colors; by="lemma")
 concordance(colors; limit=10)
 
-## alignment projection
+# ---- morphological features ----
 
-# query French, see the English translations
-translated = project(ame, "labse")
-concordance(translated; limit=10)
+# if the corpus was built with --decompose-feats:
+# query(corpus, cql"[feats.Number='Plur' & feats.Gender='Fem']"; component="maupassant-fr")
 
-## collocates
+# ---- alignment projection ----
 
-# what words appear near "âme" in a ±5 token window?
+result = project(ame, "labse")
+result                     # shows projection diagnostics
+result.projected           # unique target sentences
+result.no_alignment        # source hits with no alignment edge
+result.unmapped            # source hits not locatable in source component
+
+texts(result)
+concordance(result; limit=10)
+
+# ---- collocates ----
+
 collocates(ame; window=5, layer="lemma")
 
-# positional distribution: where do collocates appear relative to "âme"?
 positional = collocates(ame; window=5, layer="lemma", positional=true)
 first(positional, 30)
 
-## DataFrames integration
+# ---- bulk annotation access ----
+
+# annotations for a range of positions
+hit = ame[1]
+annotations(corpus, hit.span, "pos")
+annotations(corpus, hit.span, "lemma")
+
+# ---- DataFrames integration ----
 
 using DataFrames
 
+hits = query(corpus, cql"[pos='ADJ'] [pos='NOUN']")
+df = DataFrame(hits)
+df.text = texts(hits)
+df.lemma = texts(hits; layer="lemma")
+
 fr_conc = DataFrame(concordance(ame; limit=20))
-en_conc = DataFrame(concordance(translated; limit=20))
+en_conc = DataFrame(concordance(result; limit=20))
+
+# ---- build a corpus from Julia ----
+
+# single-component build:
+# Montre.build("data/conllu/", "my-corpus/"; name="maupassant", decompose_feats=true)
+
+# multi-component build from manifest:
+# Montre.build("corpus.toml", "my-corpus/")
 
 close(corpus)
-
