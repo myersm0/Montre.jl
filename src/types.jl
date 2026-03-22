@@ -21,6 +21,7 @@ A named subcorpus within a multi-component corpus (e.g. a language or edition).
 struct Component
 	name::String
 	language::String
+	token_count::Int
 end
 
 """
@@ -33,6 +34,10 @@ struct Alignment
 	name::String
 	source::String
 	target::String
+	source_layer::String
+	target_layer::String
+	directed::Bool
+	edge_count::Int
 end
 
 """
@@ -87,6 +92,12 @@ end
 String macro for CQL queries. Single quotes become double quotes;
 backslashes and `\$` are passed through literally (no interpolation).
 
+```julia
+query(corpus, cql"[pos='NOUN']")
+query(corpus, cql"[lemma='être' & pos='VERB']")
+query(corpus, cql"[lemma=/^(bleu|blanc)\$/]")
+```
+
 For dynamic queries with interpolation, use [`CQL()`](@ref) instead.
 """
 macro cql_str(s)
@@ -140,3 +151,18 @@ mutable struct HitList
 		return hitlist
 	end
 end
+
+"""
+	ProjectionResult
+
+Result of projecting hits through an alignment. Contains the projected
+[`HitList`](@ref) plus diagnostic counts.
+"""
+struct ProjectionResult
+	hits::HitList
+	unmapped::Int
+	no_alignment::Int
+	projected::Int
+end
+
+Base.length(pr::ProjectionResult) = length(pr.hits)

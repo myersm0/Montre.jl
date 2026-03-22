@@ -1,4 +1,3 @@
-
 function check_error()
 	pointer = ccall((:montre_last_error, libmontre), Ptr{Cchar}, ())
 	if pointer != C_NULL
@@ -16,15 +15,37 @@ function take_string(pointer::Ptr{Cchar})
 	return result
 end
 
+function take_string_array(array::Ptr{Ptr{Cchar}}, n::Integer)
+	if array == C_NULL || n == 0
+		return String[]
+	end
+	result = [unsafe_string(unsafe_load(array, i)) for i in 1:n]
+	ccall((:montre_string_array_free, libmontre), Cvoid, (Ptr{Ptr{Cchar}}, UInt64), array, UInt64(n))
+	return result
+end
+
+function take_u64_array(array::Ptr{UInt64}, n::Integer)
+	if array == C_NULL || n == 0
+		return Int[]
+	end
+	result = [Int(unsafe_load(array, i)) for i in 1:n]
+	ccall((:montre_u64_array_free, libmontre), Cvoid, (Ptr{UInt64}, UInt64), array, UInt64(n))
+	return result
+end
+
+function take_i32_array(array::Ptr{Int32}, n::Integer)
+	if array == C_NULL || n == 0
+		return Int32[]
+	end
+	result = [unsafe_load(array, i) for i in 1:n]
+	ccall((:montre_i32_array_free, libmontre), Cvoid, (Ptr{Int32}, UInt64), array, UInt64(n))
+	return result
+end
+
 # ---- corpus lifecycle ----
 
 function corpus_open(path::AbstractString)
-	pointer = ccall(
-		(:montre_corpus_open, libmontre),
-		Ptr{Nothing},
-		(Cstring,),
-		path,
-	)
+	pointer = ccall((:montre_corpus_open, libmontre), Ptr{Nothing}, (Cstring,), path)
 	if pointer == C_NULL
 		check_error()
 		error("Montre: failed to open corpus at $path")
@@ -48,11 +69,8 @@ end
 
 function corpus_layer_name(pointer::Ptr{Nothing}, index::Integer)
 	raw = ccall(
-		(:montre_corpus_layer_name, libmontre),
-		Ptr{Cchar},
-		(Ptr{Nothing}, UInt32),
-		pointer,
-		UInt32(index),
+		(:montre_corpus_layer_name, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
 	)
 	return take_string(raw)
 end
@@ -65,11 +83,8 @@ end
 
 function corpus_document_name(pointer::Ptr{Nothing}, index::Integer)
 	raw = ccall(
-		(:montre_corpus_document_name, libmontre),
-		Ptr{Cchar},
-		(Ptr{Nothing}, UInt32),
-		pointer,
-		UInt32(index),
+		(:montre_corpus_document_name, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
 	)
 	return take_string(raw)
 end
@@ -82,62 +97,142 @@ end
 
 function corpus_component_name(pointer::Ptr{Nothing}, index::Integer)
 	raw = ccall(
-		(:montre_corpus_component_name, libmontre),
-		Ptr{Cchar},
-		(Ptr{Nothing}, UInt32),
-		pointer,
-		UInt32(index),
+		(:montre_corpus_component_name, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
 	)
 	return take_string(raw)
 end
 
 function corpus_component_language(pointer::Ptr{Nothing}, index::Integer)
 	raw = ccall(
-		(:montre_corpus_component_language, libmontre),
-		Ptr{Cchar},
-		(Ptr{Nothing}, UInt32),
-		pointer,
-		UInt32(index),
+		(:montre_corpus_component_language, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
 	)
 	return take_string(raw)
+end
+
+function corpus_component_document_range(pointer::Ptr{Nothing}, index::Integer)
+	out_start = Ref{UInt32}(0)
+	out_end = Ref{UInt32}(0)
+	ok = ccall(
+		(:montre_corpus_component_document_range, libmontre), Int32,
+		(Ptr{Nothing}, UInt32, Ptr{UInt32}, Ptr{UInt32}),
+		pointer, UInt32(index), out_start, out_end,
+	)
+	ok == 0 && return nothing
+	return Int(out_start[]):Int(out_end[]) - 1
+end
+
+function corpus_component_for_document(pointer::Ptr{Nothing}, doc_index::Integer)
+	result = ccall(
+		(:montre_corpus_component_for_document, libmontre), Int32,
+		(Ptr{Nothing}, UInt32), pointer, UInt32(doc_index),
+	)
+	result < 0 && return nothing
+	return Int(result)
+end
+
+function corpus_component_token_count(pointer::Ptr{Nothing}, index::Integer)
+	result = ccall(
+		(:montre_corpus_component_token_count, libmontre), Int64,
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
+	)
+	result < 0 && return nothing
+	return Int(result)
+end
+
+# ---- inverted index ----
+
+function corpus_inverted_values(pointer::Ptr{Nothing}, layer::AbstractString)
+	out_len = Ref{UInt64}(0)
+	array = ccall(
+		(:montre_corpus_inverted_values, libmontre), Ptr{Ptr{Cchar}},
+		(Ptr{Nothing}, Cstring, Ptr{UInt64}), pointer, layer, out_len,
+	)
+	return take_string_array(array, Int(out_len[]))
 end
 
 # ---- token access ----
 
 function corpus_token_annotation(pointer::Ptr{Nothing}, position::Integer, layer::AbstractString)
 	raw = ccall(
-		(:montre_corpus_token_annotation, libmontre),
-		Ptr{Cchar},
-		(Ptr{Nothing}, UInt64, Cstring),
-		pointer,
-		UInt64(position),
-		layer,
+		(:montre_corpus_token_annotation, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt64, Cstring), pointer, UInt64(position), layer,
 	)
 	return take_string(raw)
 end
 
 function corpus_span_text(pointer::Ptr{Nothing}, start::Integer, stop::Integer, layer::AbstractString)
 	raw = ccall(
-		(:montre_corpus_span_text, libmontre),
-		Ptr{Cchar},
-		(Ptr{Nothing}, UInt64, UInt64, Cstring),
-		pointer,
-		UInt64(start),
-		UInt64(stop),
-		layer,
+		(:montre_corpus_span_text, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt64, UInt64, Cstring), pointer, UInt64(start), UInt64(stop), layer,
 	)
 	return take_string(raw)
+end
+
+function corpus_token_annotations(pointer::Ptr{Nothing}, start::Integer, stop::Integer, layer::AbstractString)
+	out_len = Ref{UInt64}(0)
+	array = ccall(
+		(:montre_corpus_token_annotations, libmontre), Ptr{Ptr{Cchar}},
+		(Ptr{Nothing}, UInt64, UInt64, Cstring, Ptr{UInt64}),
+		pointer, UInt64(start), UInt64(stop), layer, out_len,
+	)
+	return take_string_array(array, Int(out_len[]))
+end
+
+# ---- span layers ----
+
+function corpus_span_layer_count(pointer::Ptr{Nothing})
+	ccall((:montre_corpus_span_layer_count, libmontre), UInt32, (Ptr{Nothing},), pointer)
+end
+
+function corpus_span_layer_name(pointer::Ptr{Nothing}, index::Integer)
+	raw = ccall(
+		(:montre_corpus_span_layer_name, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
+	)
+	return take_string(raw)
+end
+
+function corpus_span_count(pointer::Ptr{Nothing}, layer::AbstractString)
+	result = ccall(
+		(:montre_corpus_span_count, libmontre), Int64,
+		(Ptr{Nothing}, Cstring), pointer, layer,
+	)
+	result < 0 && return nothing
+	return Int(result)
+end
+
+function corpus_span_at(pointer::Ptr{Nothing}, layer::AbstractString, index::Integer)
+	out_start = Ref{UInt64}(0)
+	out_end = Ref{UInt64}(0)
+	ok = ccall(
+		(:montre_corpus_span_at, libmontre), Int32,
+		(Ptr{Nothing}, Cstring, UInt64, Ptr{UInt64}, Ptr{UInt64}),
+		pointer, layer, UInt64(index), out_start, out_end,
+	)
+	ok == 0 && return nothing
+	return Int(out_start[]):Int(out_end[]) - 1
+end
+
+function corpus_span_containing(pointer::Ptr{Nothing}, layer::AbstractString, position::Integer)
+	out_start = Ref{UInt64}(0)
+	out_end = Ref{UInt64}(0)
+	result = ccall(
+		(:montre_corpus_span_containing, libmontre), Int64,
+		(Ptr{Nothing}, Cstring, UInt64, Ptr{UInt64}, Ptr{UInt64}),
+		pointer, layer, UInt64(position), out_start, out_end,
+	)
+	result < 0 && return nothing
+	return (; index = Int(result), span = Int(out_start[]):Int(out_end[]) - 1)
 end
 
 # ---- query ----
 
 function query(pointer::Ptr{Nothing}, cql::AbstractString)
 	result = ccall(
-		(:montre_query, libmontre),
-		Ptr{Nothing},
-		(Ptr{Nothing}, Cstring),
-		pointer,
-		cql,
+		(:montre_query, libmontre), Ptr{Nothing},
+		(Ptr{Nothing}, Cstring), pointer, cql,
 	)
 	if result == C_NULL
 		check_error()
@@ -148,16 +243,36 @@ end
 
 function query_in_component(pointer::Ptr{Nothing}, cql::AbstractString, component::AbstractString)
 	result = ccall(
-		(:montre_query_in_component, libmontre),
-		Ptr{Nothing},
-		(Ptr{Nothing}, Cstring, Cstring),
-		pointer,
-		cql,
-		component,
+		(:montre_query_in_component, libmontre), Ptr{Nothing},
+		(Ptr{Nothing}, Cstring, Cstring), pointer, cql, component,
 	)
 	if result == C_NULL
 		check_error()
 		error("Montre: query failed")
+	end
+	return result
+end
+
+function query_count(pointer::Ptr{Nothing}, cql::AbstractString)
+	result = ccall(
+		(:montre_query_count, libmontre), Int64,
+		(Ptr{Nothing}, Cstring), pointer, cql,
+	)
+	if result < 0
+		check_error()
+		error("Montre: query count failed")
+	end
+	return result
+end
+
+function query_count_in_component(pointer::Ptr{Nothing}, cql::AbstractString, component::AbstractString)
+	result = ccall(
+		(:montre_query_count_in_component, libmontre), Int64,
+		(Ptr{Nothing}, Cstring, Cstring), pointer, cql, component,
+	)
+	if result < 0
+		check_error()
+		error("Montre: query count failed")
 	end
 	return result
 end
@@ -171,68 +286,64 @@ function hitlist_len(pointer::Ptr{Nothing})
 end
 
 function hit_start(pointer::Ptr{Nothing}, index::Integer)
-	ccall(
-		(:montre_hit_start, libmontre),
-		UInt64,
-		(Ptr{Nothing}, UInt64),
-		pointer,
-		UInt64(index),
-	)
+	ccall((:montre_hit_start, libmontre), UInt64, (Ptr{Nothing}, UInt64), pointer, UInt64(index))
 end
 
 function hit_end(pointer::Ptr{Nothing}, index::Integer)
-	ccall(
-		(:montre_hit_end, libmontre),
-		UInt64,
-		(Ptr{Nothing}, UInt64),
-		pointer,
-		UInt64(index),
-	)
+	ccall((:montre_hit_end, libmontre), UInt64, (Ptr{Nothing}, UInt64), pointer, UInt64(index))
 end
 
 function hit_document_index(pointer::Ptr{Nothing}, index::Integer)
-	ccall(
-		(:montre_hit_document_index, libmontre),
-		UInt32,
-		(Ptr{Nothing}, UInt64),
-		pointer,
-		UInt64(index),
-	)
+	ccall((:montre_hit_document_index, libmontre), UInt32, (Ptr{Nothing}, UInt64), pointer, UInt64(index))
 end
 
 function hit_sentence_index(pointer::Ptr{Nothing}, index::Integer)
-	ccall(
-		(:montre_hit_sentence_index, libmontre),
-		UInt32,
-		(Ptr{Nothing}, UInt64),
-		pointer,
-		UInt64(index),
-	)
+	ccall((:montre_hit_sentence_index, libmontre), UInt32, (Ptr{Nothing}, UInt64), pointer, UInt64(index))
 end
 
 function hitlist_populate_context(hits::Ptr{Nothing}, corpus::Ptr{Nothing})
 	ccall(
-		(:montre_hitlist_populate_context, libmontre),
-		Cvoid,
-		(Ptr{Nothing}, Ptr{Nothing}),
-		hits,
-		corpus,
+		(:montre_hitlist_populate_context, libmontre), Cvoid,
+		(Ptr{Nothing}, Ptr{Nothing}), hits, corpus,
 	)
 end
 
-function query_count(pointer::Ptr{Nothing}, cql::AbstractString)
-	result = ccall(
-		(:montre_query_count, libmontre),
-		Int64,
-		(Ptr{Nothing}, Cstring),
-		pointer,
-		cql,
+# ---- bulk hit field extraction ----
+
+function hitlist_starts(hits::Ptr{Nothing})
+	out_len = Ref{UInt64}(0)
+	array = ccall(
+		(:montre_hitlist_starts, libmontre), Ptr{UInt64},
+		(Ptr{Nothing}, Ptr{UInt64}), hits, out_len,
 	)
-	if result < 0
-		check_error()
-		error("Montre: query count failed")
-	end
-	return result
+	return take_u64_array(array, Int(out_len[]))
+end
+
+function hitlist_ends(hits::Ptr{Nothing})
+	out_len = Ref{UInt64}(0)
+	array = ccall(
+		(:montre_hitlist_ends, libmontre), Ptr{UInt64},
+		(Ptr{Nothing}, Ptr{UInt64}), hits, out_len,
+	)
+	return take_u64_array(array, Int(out_len[]))
+end
+
+function hitlist_document_indices(hits::Ptr{Nothing})
+	out_len = Ref{UInt64}(0)
+	array = ccall(
+		(:montre_hitlist_document_indices, libmontre), Ptr{UInt64},
+		(Ptr{Nothing}, Ptr{UInt64}), hits, out_len,
+	)
+	return take_u64_array(array, Int(out_len[]))
+end
+
+function hitlist_sentence_indices(hits::Ptr{Nothing})
+	out_len = Ref{UInt64}(0)
+	array = ccall(
+		(:montre_hitlist_sentence_indices, libmontre), Ptr{UInt64},
+		(Ptr{Nothing}, Ptr{UInt64}), hits, out_len,
+	)
+	return take_u64_array(array, Int(out_len[]))
 end
 
 # ---- bulk text extraction ----
@@ -240,73 +351,43 @@ end
 function hitlist_texts(hits::Ptr{Nothing}, corpus::Ptr{Nothing}, layer::AbstractString)
 	out_len = Ref{UInt64}(0)
 	array = ccall(
-		(:montre_hitlist_texts, libmontre),
-		Ptr{Ptr{Cchar}},
+		(:montre_hitlist_texts, libmontre), Ptr{Ptr{Cchar}},
 		(Ptr{Nothing}, Ptr{Nothing}, Cstring, Ptr{UInt64}),
-		hits,
-		corpus,
-		layer,
-		out_len,
+		hits, corpus, layer, out_len,
 	)
 	if array == C_NULL
 		check_error()
 		return String[]
 	end
-	n = Int(out_len[])
-	result = [unsafe_string(unsafe_load(array, i)) for i in 1:n]
-	ccall(
-		(:montre_string_array_free, libmontre),
-		Cvoid,
-		(Ptr{Ptr{Cchar}}, UInt64),
-		array,
-		out_len[],
-	)
-	return result
+	return take_string_array(array, Int(out_len[]))
 end
 
-function context_tokens(
-	hits::Ptr{Nothing}, corpus::Ptr{Nothing},
-	window::Integer, layer::AbstractString,
-)
+function context_tokens(hits::Ptr{Nothing}, corpus::Ptr{Nothing}, window::Integer, layer::AbstractString)
 	out_len = Ref{UInt64}(0)
 	out_positions = Ref{Ptr{Int32}}(C_NULL)
 	out_tokens = Ref{Ptr{Ptr{Cchar}}}(C_NULL)
 	out_offsets = Ref{Ptr{UInt64}}(C_NULL)
 
 	ccall(
-		(:montre_context_tokens, libmontre),
-		Cvoid,
-		(Ptr{Nothing}, Ptr{Nothing}, UInt64, Cstring,
+		(:montre_context_tokens, libmontre), Cvoid,
+		(Ptr{Nothing}, Ptr{Nothing}, UInt32, Cstring,
 		 Ptr{Ptr{Int32}}, Ptr{Ptr{Ptr{Cchar}}}, Ptr{Ptr{UInt64}}, Ptr{UInt64}),
-		hits,
-		corpus,
-		UInt64(window),
-		layer,
-		out_positions,
-		out_tokens,
-		out_offsets,
-		out_len,
+		hits, corpus, UInt32(window), layer,
+		out_positions, out_tokens, out_offsets, out_len,
 	)
 
 	n = Int(out_len[])
-	positions_ptr = out_positions[]
 	tokens_ptr = out_tokens[]
-	offsets_ptr = out_offsets[]
 
 	if tokens_ptr == C_NULL || n == 0
 		check_error()
 		return (positions = Int32[], tokens = String[], offsets = Int[])
 	end
 
-	positions = [unsafe_load(positions_ptr, i) for i in 1:n]
-	tokens = [unsafe_string(unsafe_load(tokens_ptr, i)) for i in 1:n]
-
 	n_hits = Int(hitlist_len(hits))
-	offsets = [Int(unsafe_load(offsets_ptr, i)) for i in 1:n_hits + 1]
-
-	ccall((:montre_i32_array_free, libmontre), Cvoid, (Ptr{Int32}, UInt64), positions_ptr, UInt64(n))
-	ccall((:montre_string_array_free, libmontre), Cvoid, (Ptr{Ptr{Cchar}}, UInt64), tokens_ptr, UInt64(n))
-	ccall((:montre_u64_array_free, libmontre), Cvoid, (Ptr{UInt64}, UInt64), offsets_ptr, UInt64(n_hits + 1))
+	positions = take_i32_array(out_positions[], n)
+	tokens = take_string_array(tokens_ptr, n)
+	offsets = take_u64_array(out_offsets[], n_hits + 1)
 
 	return (; positions, tokens, offsets)
 end
@@ -319,62 +400,109 @@ end
 
 function corpus_alignment_name(pointer::Ptr{Nothing}, index::Integer)
 	raw = ccall(
-		(:montre_corpus_alignment_name, libmontre),
-		Ptr{Cchar},
-		(Ptr{Nothing}, UInt32),
-		pointer,
-		UInt32(index),
+		(:montre_corpus_alignment_name, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
 	)
 	return take_string(raw)
 end
 
 function corpus_alignment_source(pointer::Ptr{Nothing}, index::Integer)
 	raw = ccall(
-		(:montre_corpus_alignment_source, libmontre),
-		Ptr{Cchar},
-		(Ptr{Nothing}, UInt32),
-		pointer,
-		UInt32(index),
+		(:montre_corpus_alignment_source, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
 	)
 	return take_string(raw)
 end
 
 function corpus_alignment_target(pointer::Ptr{Nothing}, index::Integer)
 	raw = ccall(
-		(:montre_corpus_alignment_target, libmontre),
-		Ptr{Cchar},
-		(Ptr{Nothing}, UInt32),
-		pointer,
-		UInt32(index),
+		(:montre_corpus_alignment_target, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
 	)
 	return take_string(raw)
 end
 
 function corpus_alignment_edge_count(pointer::Ptr{Nothing}, index::Integer)
 	ccall(
-		(:montre_corpus_alignment_edge_count, libmontre),
-		UInt64,
-		(Ptr{Nothing}, UInt32),
-		pointer,
-		UInt32(index),
+		(:montre_corpus_alignment_edge_count, libmontre), UInt64,
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
 	)
+end
+
+function corpus_alignment_source_layer(pointer::Ptr{Nothing}, index::Integer)
+	raw = ccall(
+		(:montre_corpus_alignment_source_layer, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
+	)
+	return take_string(raw)
+end
+
+function corpus_alignment_target_layer(pointer::Ptr{Nothing}, index::Integer)
+	raw = ccall(
+		(:montre_corpus_alignment_target_layer, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
+	)
+	return take_string(raw)
+end
+
+function corpus_alignment_directed(pointer::Ptr{Nothing}, index::Integer)
+	result = ccall(
+		(:montre_corpus_alignment_directed, libmontre), Int32,
+		(Ptr{Nothing}, UInt32), pointer, UInt32(index),
+	)
+	result < 0 && return nothing
+	return result != 0
 end
 
 # ---- projection ----
 
 function project(corpus::Ptr{Nothing}, hits::Ptr{Nothing}, alignment::AbstractString)
+	out_unmapped = Ref{UInt64}(0)
+	out_no_alignment = Ref{UInt64}(0)
+	out_projected = Ref{UInt64}(0)
 	result = ccall(
-		(:montre_project, libmontre),
-		Ptr{Nothing},
-		(Ptr{Nothing}, Ptr{Nothing}, Cstring),
-		corpus,
-		hits,
-		alignment,
+		(:montre_project, libmontre), Ptr{Nothing},
+		(Ptr{Nothing}, Ptr{Nothing}, Cstring, Ptr{UInt64}, Ptr{UInt64}, Ptr{UInt64}),
+		corpus, hits, alignment, out_unmapped, out_no_alignment, out_projected,
 	)
 	if result == C_NULL
 		check_error()
 		error("Montre: projection failed")
 	end
-	return result
+	return (;
+		pointer = result,
+		unmapped = Int(out_unmapped[]),
+		no_alignment = Int(out_no_alignment[]),
+		projected = Int(out_projected[]),
+	)
 end
 
+# ---- build ----
+
+function build_directory(name::AbstractString, input_dir::AbstractString, output_dir::AbstractString;
+	decompose_feats::Bool = false, strict::Bool = false,
+)
+	result = ccall(
+		(:montre_build_directory, libmontre), Int32,
+		(Cstring, Cstring, Cstring, Int32, Int32),
+		name, input_dir, output_dir, Int32(decompose_feats), Int32(strict),
+	)
+	if result == 0
+		check_error()
+		error("Montre: build failed")
+	end
+end
+
+function build_manifest(manifest_path::AbstractString, output_dir::AbstractString;
+	decompose_feats::Bool = false, strict::Bool = false,
+)
+	result = ccall(
+		(:montre_build_manifest, libmontre), Int32,
+		(Cstring, Cstring, Int32, Int32),
+		manifest_path, output_dir, Int32(decompose_feats), Int32(strict),
+	)
+	if result == 0
+		check_error()
+		error("Montre: build failed")
+	end
+end

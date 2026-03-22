@@ -30,7 +30,7 @@ function Base.count(corpus::Corpus, cql::AbstractString; component::Union{Abstra
 	if component === nothing
 		Int(query_count(corpus.pointer, cql))
 	else
-		length(query(corpus, cql; component))
+		Int(query_count_in_component(corpus.pointer, cql, component))
 	end
 end
 
@@ -79,24 +79,30 @@ end
 # ---- projection ----
 
 """
-	project(corpus, hitlist, alignment) -> HitList
-	project(hitlist, alignment) -> HitList
-	project(corpus, cql, alignment) -> HitList
+	project(corpus, hitlist, alignment) -> ProjectionResult
+	project(hitlist, alignment) -> ProjectionResult
+	project(corpus, cql, alignment) -> ProjectionResult
 
 Project hits through a named alignment to the target component.
-Returns a new [`HitList`](@ref) of target-side spans.
+Returns a [`ProjectionResult`](@ref) containing the target-side [`HitList`](@ref)
+plus diagnostic counts (unmapped, no_alignment, projected).
+
+Access the hits via `result.hits`, or use `texts`, `concordance`, etc. directly
+on the result.
 
 ```julia
 fr_hits = query(corpus, cql"[lemma='âme']"; component="maupassant-fr")
-en_hits = project(fr_hits, "labse")
-texts(en_hits)
+result = project(fr_hits, "labse")
+texts(result.hits)
+result.projected    # number of unique target sentences
+result.no_alignment # source hits with no alignment edge
 ```
 """
 function project(corpus::Corpus, hitlist::HitList, alignment::AbstractString)
-	pointer = project(corpus.pointer, hitlist.pointer, alignment)
-	projected = HitList(pointer, corpus)
+	raw = project(corpus.pointer, hitlist.pointer, alignment)
+	projected = HitList(raw.pointer, corpus)
 	hitlist_populate_context(projected.pointer, corpus.pointer)
-	return projected
+	return ProjectionResult(projected, raw.unmapped, raw.no_alignment, raw.projected)
 end
 
 project(hitlist::HitList, alignment::AbstractString) = project(hitlist.corpus, hitlist, alignment)
@@ -312,3 +318,14 @@ concordance(corpus::Corpus, cql::CQL; kwargs...) = concordance(corpus, cql.query
 frequency(corpus::Corpus, cql::CQL; kwargs...) = frequency(corpus, cql.query; kwargs...)
 collocates(corpus::Corpus, cql::CQL; kwargs...) = collocates(corpus, cql.query; kwargs...)
 project(corpus::Corpus, cql::CQL, alignment::AbstractString) = project(corpus, cql.query, alignment)
+
+# ---- ProjectionResult forwarding ----
+
+texts(pr::ProjectionResult; kwargs...) = texts(pr.hits; kwargs...)
+concordance(pr::ProjectionResult; kwargs...) = concordance(pr.hits; kwargs...)
+frequency(pr::ProjectionResult; kwargs...) = frequency(pr.hits; kwargs...)
+collocates(pr::ProjectionResult; kwargs...) = collocates(pr.hits; kwargs...)
+
+function Base.show(io::IO, pr::ProjectionResult)
+	print(io, "ProjectionResult($(pr.projected) projected, $(pr.unmapped) unmapped, $(pr.no_alignment) unaligned)")
+end

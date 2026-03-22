@@ -57,6 +57,15 @@ function layers(corpus::Corpus)
 end
 
 """
+	features(corpus::Corpus) -> Vector{String}
+
+Decomposed morphological feature layers (those starting with `"feats."`).
+"""
+function features(corpus::Corpus)
+	filter(l -> startswith(l, "feats."), layers(corpus))
+end
+
+"""
 	documents(corpus::Corpus) -> Vector{String}
 
 Document names in the corpus (typically source filenames).
@@ -77,9 +86,31 @@ function components(corpus::Corpus)
 		Component(
 			corpus_component_name(corpus.pointer, i),
 			corpus_component_language(corpus.pointer, i),
+			something(corpus_component_token_count(corpus.pointer, i), 0),
 		)
 		for i in 0:n - 1
 	]
+end
+
+"""
+	span_layers(corpus::Corpus) -> Vector{String}
+
+Available span layers (e.g. `["sentence", "document", "paragraph"]`).
+"""
+function span_layers(corpus::Corpus)
+	n = Int(corpus_span_layer_count(corpus.pointer))
+	[corpus_span_layer_name(corpus.pointer, i) for i in 0:n - 1]
+end
+
+"""
+	vocabulary(corpus::Corpus, layer::AbstractString) -> Vector{String}
+
+All distinct values for a layer from the inverted index.
+For high-cardinality layers like `"word"` or `"lemma"`, this may return
+tens of thousands of entries.
+"""
+function vocabulary(corpus::Corpus, layer::AbstractString)
+	corpus_inverted_values(corpus.pointer, layer)
 end
 
 """
@@ -94,6 +125,15 @@ annotation(corpus, 42, "lemma")  # => "âme"
 """
 function annotation(corpus::Corpus, position::Integer, layer::AbstractString)
 	corpus_token_annotation(corpus.pointer, position, layer)
+end
+
+"""
+	annotations(corpus::Corpus, range::UnitRange, layer::AbstractString) -> Vector{String}
+
+Bulk annotation extraction for a contiguous position range.
+"""
+function annotations(corpus::Corpus, range::UnitRange, layer::AbstractString)
+	corpus_token_annotations(corpus.pointer, first(range), last(range) + 1, layer)
 end
 
 """
@@ -116,6 +156,52 @@ function span_text(corpus::Corpus, hit::Hit; layer::AbstractString = "word")
 	span_text(corpus, hit.span; layer = layer)
 end
 
+"""
+	alignments(corpus::Corpus) -> Vector{Alignment}
+
+Named alignment relations between components (e.g. sentence-level translation alignments).
+"""
+function alignments(corpus::Corpus)
+	n = Int(corpus_alignment_count(corpus.pointer))
+	[
+		Alignment(
+			corpus_alignment_name(corpus.pointer, i),
+			corpus_alignment_source(corpus.pointer, i),
+			corpus_alignment_target(corpus.pointer, i),
+			something(corpus_alignment_source_layer(corpus.pointer, i), ""),
+			something(corpus_alignment_target_layer(corpus.pointer, i), ""),
+			something(corpus_alignment_directed(corpus.pointer, i), true),
+			Int(corpus_alignment_edge_count(corpus.pointer, i)),
+		)
+		for i in 0:n - 1
+	]
+end
+
+"""
+	Montre.build(input_dir, output_dir; name="corpus", decompose_feats=false, strict=false)
+	Montre.build(manifest_path, output_dir; decompose_feats=false, strict=false)
+
+Build a montre corpus from CoNLL-U files. The first form builds a single-component
+corpus from a directory. The second form (when `manifest_path` ends in `.toml`)
+builds a multi-component corpus from a TOML manifest.
+
+```julia
+Montre.build("data/conllu/", "my-corpus/"; name="maupassant", decompose_feats=true)
+Montre.build("corpus.toml", "my-corpus/")
+```
+"""
+function build(input::AbstractString, output::AbstractString;
+	name::AbstractString = "corpus", decompose_feats::Bool = false, strict::Bool = false,
+)
+	if endswith(input, ".toml")
+		build_manifest(input, output; decompose_feats, strict)
+	else
+		build_directory(name, input, output; decompose_feats, strict)
+	end
+end
+
+# ---- display ----
+
 function Base.show(io::IO, corpus::Corpus)
 	if !isopen(corpus)
 		print(io, "Corpus (closed)")
@@ -132,26 +218,9 @@ function Base.show(io::IO, corpus::Corpus)
 end
 
 function Base.show(io::IO, component::Component)
-	print(io, "Component(\"$(component.name)\", $(component.language))")
-end
-
-"""
-	alignments(corpus::Corpus) -> Vector{Alignment}
-
-Named alignment relations between components (e.g. sentence-level translation alignments).
-"""
-function alignments(corpus::Corpus)
-	n = Int(corpus_alignment_count(corpus.pointer))
-	[
-		Alignment(
-			corpus_alignment_name(corpus.pointer, i),
-			corpus_alignment_source(corpus.pointer, i),
-			corpus_alignment_target(corpus.pointer, i),
-		)
-		for i in 0:n - 1
-	]
+	print(io, "Component(\"$(component.name)\", $(component.language), $(component.token_count) tokens)")
 end
 
 function Base.show(io::IO, alignment::Alignment)
-	print(io, "Alignment(\"$(alignment.name)\", $(alignment.source) → $(alignment.target))")
+	print(io, "Alignment(\"$(alignment.name)\", $(alignment.source) → $(alignment.target), $(alignment.edge_count) edges)")
 end

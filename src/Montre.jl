@@ -11,12 +11,14 @@ else
 end
 
 include("types.jl")
-export Corpus, HitList, Hit, Component, Alignment, Concordance, ConcordanceLine, CQL, @cql_str
+export Corpus, HitList, Hit, Component, Alignment, ProjectionResult,
+	Concordance, ConcordanceLine, CQL, @cql_str
 
 include("ffi.jl")
 
 include("corpus.jl")
-export token_count, layers, documents, components, alignments, annotation, span_text
+export token_count, layers, features, documents, components, alignments,
+	span_layers, vocabulary, annotation, annotations, span_text
 
 include("query.jl")
 export query, texts, concordance, frequency, collocates, project
@@ -24,4 +26,3 @@ export query, texts, concordance, frequency, collocates, project
 include("tables.jl")
 
 end
-
