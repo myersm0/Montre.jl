@@ -1,10 +1,10 @@
-# Montre
+# Montre.jl
 
 [![Build Status](https://github.com/myersm0/Montre.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/myersm0/Montre.jl/actions/workflows/CI.yml?query=branch%3Amain)
 
-Julia bindings for [Montre](https://github.com/myersm0/montre), a fast, embeddable query engine for annotated and parallel corpora.
+Julia bindings for **[montre]**(https://github.com/myersm0/montre), a fast, embeddable query engine for annotated and parallel corpora.
 
-Montre.jl lets you query corpora using CQL (Corpus Query Language) directly from Julia, with no server, daemon, or external process. The query engine runs in-process via a Rust shared library.
+Montre.jl lets you analyze linguistic corpora using CQL-like queries directly from Julia, without any server, daemon, or external process. The query engine runs in-process via a Rust shared library.
 
 ## Status
 
@@ -36,7 +36,7 @@ corpus = Montre.open("./my-corpus")
 
 hits = query(corpus, cql"[pos='ADJ'] [pos='NOUN']")
 concordance(hits; limit=10)
-frequency(corpus, cql"[pos='NOUN']"; by="lemma")
+frequency(hits; by="lemma")
 
 close(corpus)
 ```
@@ -49,24 +49,33 @@ close(corpus)
 corpus = Montre.open("./my-corpus")
 
 token_count(corpus)
-layers(corpus)        # available annotation layers: word, lemma, pos, ...
+layers(corpus)           # annotation layers: word, lemma, pos, ...
+features(corpus)         # decomposed morphological features: feats.Number, feats.Gender, ...
 documents(corpus)
-components(corpus)
-alignments(corpus)
+components(corpus)       # subcorpora with per-component token counts
+alignments(corpus)       # alignment relations with layer info and edge counts
+span_layers(corpus)      # sentence, document, paragraph, ...
+vocabulary(corpus, "pos")  # all distinct values for a layer
 ```
 
 ### Querying
 
 ```julia
 hits = query(corpus, cql"[pos='ADJ'] [pos='NOUN']")
-span_text(corpus, hits[1])
 texts(hits)
+texts(hits; layer="lemma")
 
 # restrict to a specific component
-hits = query(corpus, cql"[pos='NOUN']"; component="baudelaire-fr")
+hits = query(corpus, cql"[pos='NOUN']"; component="maupassant-fr")
+
+# multi-attribute queries
+hits = query(corpus, cql"[lemma='être' & pos='VERB']")
+
+# regex alternation
+hits = query(corpus, cql"[lemma=/^(noir|blanc|rouge)$/]")
 
 # count without materializing hits
-count(corpus, cql"[pos='VERB']")
+count(corpus, cql"[pos='VERB']"; component="maupassant-fr")
 ```
 
 ### Concordance
@@ -92,8 +101,10 @@ concordance(hits)
 ### Frequency
 
 ```julia
-frequency(corpus, cql"[pos='NOUN']"; by="lemma")
-frequency(corpus, cql"[pos='NOUN']"; by="lemma", component="baudelaire-fr")
+frequency(corpus, cql"[pos='NOUN']"; by="lemma", component="maupassant-fr")
+
+hits = query(corpus, cql"[pos='ADJ'] [pos='NOUN']")
+frequency(hits; by="word")
 ```
 
 ### Collocates
@@ -104,10 +115,10 @@ Find words that co-occur with your query target within a context window:
 collocates(corpus, cql"[lemma='âme']"; window=5, layer="lemma")
 ```
 
-With `positional=true`, results include relative position (negative = left of match, positive = right), enabling distributional analysis:
+With `positional=true`, results include relative position (negative = left of match, positive = right):
 
 ```julia
-collocates(corpus, cql"[lemma='âme']"; window=5, layer="lemma", positional=true)
+collocates(hits; window=5, layer="lemma", positional=true)
 ```
 
 ### Alignment projection
@@ -115,10 +126,34 @@ collocates(corpus, cql"[lemma='âme']"; window=5, layer="lemma", positional=true
 Query one language and see the aligned translations:
 
 ```julia
-hits = query(corpus, cql"[lemma='âme']"; component="maupassant-fr")
-translated = project(hits, "labse")
-texts(translated)
-concordance(translated)
+ame = query(corpus, cql"[lemma='âme']"; component="maupassant-fr")
+result = project(ame, "labse")
+
+result.projected       # unique target sentences
+result.no_alignment    # source hits with no alignment edge
+result.unmapped        # source hits not locatable in source component
+
+texts(result)
+concordance(result)
+```
+
+### Bulk annotation access
+
+Extract annotations for a range of token positions:
+
+```julia
+hit = hits[1]
+annotations(corpus, hit.span, "pos")
+annotations(corpus, hit.span, "lemma")
+```
+
+### Building corpora
+
+Build corpora from Julia without the CLI:
+
+```julia
+Montre.build("data/conllu/", "my-corpus/"; name="maupassant", decompose_feats=true)
+Montre.build("corpus.toml", "my-corpus/")   # multi-component from TOML manifest
 ```
 
 ### Resource management
@@ -139,7 +174,7 @@ The `cql"..."` string macro avoids escaping. Use single quotes for attribute val
 ```julia
 query(corpus, cql"[pos='NOUN']")
 query(corpus, cql"[lemma='être' & pos='VERB']")
-query(corpus, cql"[lemma=/^(bleu|blanc|rouge)$/]")
+query(corpus, cql"[lemma=/^(bleu|blanc)$/]")
 query(corpus, cql"[word='\d+$']")   # backslash and $ passed through literally
 ```
 
@@ -166,6 +201,7 @@ using DataFrames
 hits = query(corpus, cql"[pos='ADJ'] [pos='NOUN']")
 df = DataFrame(hits)
 df.text = texts(hits)
+df.lemma = texts(hits; layer="lemma")
 ```
 
 ```julia
@@ -178,13 +214,15 @@ df = DataFrame(concordance(corpus, cql"[lemma='âme']"))
 
 Text and annotation data (word forms, lemmas, POS tags) are fetched on demand when you call `texts`, `concordance`, `frequency`, or `collocates`. Each of these makes a single bulk FFI call, so the cost is one round-trip per operation, not per hit.
 
+`project` returns a `ProjectionResult` containing the target-side hits plus diagnostic counts showing how many source hits mapped successfully, how many had no alignment edge, and how many couldn't be located in the source component.
+
 `close(corpus)` frees the Rust-side resources. If you forget, Julia's garbage collector will clean up eventually, but `do`-blocks or explicit `close` are preferred.
 
 ## API summary
 
-**Corpus lifecycle:** `Montre.open`, `close`, `isopen`
+**Corpus lifecycle:** `Montre.open`, `close`, `isopen`, `Montre.build`
 
-**Inspection:** `token_count`, `layers`, `documents`, `components`, `alignments`, `annotation`, `span_text`
+**Inspection:** `token_count`, `layers`, `features`, `documents`, `components`, `alignments`, `span_layers`, `vocabulary`, `annotation`, `annotations`, `span_text`
 
 **Querying:** `query`, `count`, `texts`, `concordance`, `frequency`, `collocates`
 
@@ -196,7 +234,7 @@ Text and annotation data (word forms, lemmas, POS tags) are fetched on demand wh
 
 - Julia 1.10+
 - Montre engine ([install](https://github.com/myersm0/montre))
-- A montre corpus (built with `montre build` from CoNLL-U data)
+- A montre corpus (built with `montre build` or `Montre.build`)
 
 ## License
 
