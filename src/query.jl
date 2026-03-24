@@ -51,7 +51,17 @@ function Base.getindex(hitlist::HitList, index::Integer)
 	stop = Int(hit_end(hitlist.pointer, zero_index)) - 1
 	document_index = Int(hit_document_index(hitlist.pointer, zero_index))
 	sentence_index = Int(hit_sentence_index(hitlist.pointer, zero_index))
-	return Hit(start:stop, document_index, sentence_index)
+	n_captures = Int(hit_capture_count(hitlist.pointer, zero_index))
+	captures = if n_captures > 0
+		[
+			hit_capture_name(hitlist.pointer, zero_index, UInt32(i)) =>
+				Int(hit_capture_start(hitlist.pointer, zero_index, UInt32(i))):Int(hit_capture_end(hitlist.pointer, zero_index, UInt32(i))) - 1
+			for i in 0:n_captures - 1
+		]
+	else
+		Pair{String, UnitRange{Int}}[]
+	end
+	return Hit(start:stop, document_index, sentence_index, captures)
 end
 
 function Base.iterate(hitlist::HitList, state = 1)
@@ -257,7 +267,12 @@ function Base.show(io::IO, hitlist::HitList)
 end
 
 function Base.show(io::IO, hit::Hit)
-	print(io, "Hit($(first(hit.span)):$(last(hit.span)))")
+	print(io, "Hit($(first(hit.span)):$(last(hit.span))")
+	if !isempty(hit.captures)
+		print(io, ", ")
+		join(io, ("$(p.first)=$(first(p.second)):$(last(p.second))" for p in hit.captures), ", ")
+	end
+	print(io, ")")
 end
 
 function Base.show(io::IO, cql::CQL)

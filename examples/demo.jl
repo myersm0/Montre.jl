@@ -21,6 +21,9 @@ layers(corpus)
 features(corpus)       # decomposed morphological feature layers (feats.*)
 span_layers(corpus)    # sentence, document, paragraph, etc.
 
+documents(corpus; component = "maupassant-en")
+documents(corpus; component = "maupassant-fr")
+
 # ---- vocabulary exploration ----
 
 vocabulary(corpus, "pos")          # all POS tags in the corpus

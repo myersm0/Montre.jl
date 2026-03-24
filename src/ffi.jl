@@ -89,6 +89,15 @@ function corpus_document_name(pointer::Ptr{Nothing}, index::Integer)
 	return take_string(raw)
 end
 
+function corpus_document_index_by_name(pointer::Ptr{Nothing}, name::AbstractString)
+	result = ccall(
+		(:montre_corpus_document_index_by_name, libmontre), Int64,
+		(Ptr{Nothing}, Cstring), pointer, name,
+	)
+	result < 0 && return nothing
+	return Int(result)
+end
+
 # ---- components ----
 
 function corpus_component_count(pointer::Ptr{Nothing})
@@ -150,6 +159,15 @@ function corpus_inverted_values(pointer::Ptr{Nothing}, layer::AbstractString)
 		(Ptr{Nothing}, Cstring, Ptr{UInt64}), pointer, layer, out_len,
 	)
 	return take_string_array(array, Int(out_len[]))
+end
+
+function corpus_inverted_count(pointer::Ptr{Nothing}, layer::AbstractString, value::AbstractString)
+	result = ccall(
+		(:montre_corpus_inverted_count, libmontre), Int64,
+		(Ptr{Nothing}, Cstring, Cstring), pointer, layer, value,
+	)
+	result < 0 && return nothing
+	return Int(result)
 end
 
 # ---- token access ----
@@ -227,6 +245,16 @@ function corpus_span_containing(pointer::Ptr{Nothing}, layer::AbstractString, po
 	return (; index = Int(result), span = Int(out_start[]):Int(out_end[]) - 1)
 end
 
+function corpus_span_count_in_range(pointer::Ptr{Nothing}, layer::AbstractString, token_start::Integer, token_end::Integer)
+	result = ccall(
+		(:montre_corpus_span_count_in_range, libmontre), Int64,
+		(Ptr{Nothing}, Cstring, UInt64, UInt64),
+		pointer, layer, UInt64(token_start), UInt64(token_end),
+	)
+	result < 0 && return nothing
+	return Int(result)
+end
+
 # ---- query ----
 
 function query(pointer::Ptr{Nothing}, cql::AbstractString)
@@ -299,6 +327,32 @@ end
 
 function hit_sentence_index(pointer::Ptr{Nothing}, index::Integer)
 	ccall((:montre_hit_sentence_index, libmontre), UInt32, (Ptr{Nothing}, UInt64), pointer, UInt64(index))
+end
+
+function hit_capture_count(pointer::Ptr{Nothing}, index::Integer)
+	ccall((:montre_hit_capture_count, libmontre), UInt32, (Ptr{Nothing}, UInt64), pointer, UInt64(index))
+end
+
+function hit_capture_name(pointer::Ptr{Nothing}, hit_index::Integer, capture_index::Integer)
+	raw = ccall(
+		(:montre_hit_capture_name, libmontre), Ptr{Cchar},
+		(Ptr{Nothing}, UInt64, UInt32), pointer, UInt64(hit_index), UInt32(capture_index),
+	)
+	return take_string(raw)
+end
+
+function hit_capture_start(pointer::Ptr{Nothing}, hit_index::Integer, capture_index::Integer)
+	ccall(
+		(:montre_hit_capture_start, libmontre), UInt64,
+		(Ptr{Nothing}, UInt64, UInt32), pointer, UInt64(hit_index), UInt32(capture_index),
+	)
+end
+
+function hit_capture_end(pointer::Ptr{Nothing}, hit_index::Integer, capture_index::Integer)
+	ccall(
+		(:montre_hit_capture_end, libmontre), UInt64,
+		(Ptr{Nothing}, UInt64, UInt32), pointer, UInt64(hit_index), UInt32(capture_index),
+	)
 end
 
 function hitlist_populate_context(hits::Ptr{Nothing}, corpus::Ptr{Nothing})

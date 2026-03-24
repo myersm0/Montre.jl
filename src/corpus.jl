@@ -59,12 +59,61 @@ function token_count(corpus::Corpus; component::Union{AbstractString, Nothing} =
 		return comps[idx].token_count
 	end
 	if document !== nothing
-		docs = documents(corpus)
-		idx = findfirst(d -> d == document, docs)
-		idx === nothing && error("Montre: document not found: $document")
-		return length(span_at(corpus, "document", idx - 1))
+		doc_idx = corpus_document_index_by_name(corpus.pointer, document)
+		doc_idx === nothing && error("Montre: document not found: $document")
+		return length(span_at(corpus, "document", doc_idx))
 	end
 	Int(corpus_token_count(corpus.pointer))
+end
+
+function _component_token_range(corpus::Corpus, component_name::AbstractString)
+	r = document_range(corpus, component_name)
+	first_doc = span_at(corpus, "document", first(r))
+	last_doc = span_at(corpus, "document", last(r))
+	return first(first_doc):last(last_doc)
+end
+
+"""
+	document_count(corpus; component=nothing) -> Int
+
+Number of documents in the corpus or in a named component.
+"""
+function document_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing)
+	if component !== nothing
+		return length(document_range(corpus, component))
+	end
+	Int(corpus_document_count(corpus.pointer))
+end
+
+"""
+	sentence_count(corpus; component=nothing, document=nothing) -> Int
+
+Sentence count for the corpus, a component, or a single document.
+"""
+function sentence_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing, document::Union{AbstractString, Nothing} = nothing)
+	if component !== nothing && document !== nothing
+		error("Montre: specify component or document, not both")
+	end
+	if component !== nothing
+		r = _component_token_range(corpus, component)
+		return something(corpus_span_count_in_range(corpus.pointer, "sentence", first(r), last(r) + 1), 0)
+	end
+	if document !== nothing
+		doc_idx = corpus_document_index_by_name(corpus.pointer, document)
+		doc_idx === nothing && error("Montre: document not found: $document")
+		doc_span = span_at(corpus, "document", doc_idx)
+		return something(corpus_span_count_in_range(corpus.pointer, "sentence", first(doc_span), last(doc_span) + 1), 0)
+	end
+	something(corpus_span_count(corpus.pointer, "sentence"), 0)
+end
+
+"""
+	component_count(corpus::Corpus) -> Int
+
+Number of components. Returns 0 for single-component corpora.
+"""
+function component_count(corpus::Corpus)
+	Int(corpus_component_count(corpus.pointer))
 end
 
 """
@@ -171,14 +220,22 @@ function span_layers(corpus::Corpus)
 end
 
 """
-	vocabulary(corpus::Corpus, layer::AbstractString) -> Vector{String}
+	vocabulary(corpus::Corpus, layer::AbstractString; top=nothing) -> Vector{NamedTuple}
 
-All distinct values for a layer from the inverted index.
-For high-cardinality layers like `"word"` or `"lemma"`, this may return
-tens of thousands of entries.
+Frequency-sorted vocabulary for a layer from the inverted index.
+Returns `(; value, count)` named tuples, descending by count.
+Use `top=N` to limit to the N most frequent entries.
+
+```julia
+vocabulary(corpus, "pos")           # all POS tags with frequencies
+vocabulary(corpus, "lemma"; top=50) # top 50 lemmas
+```
 """
-function vocabulary(corpus::Corpus, layer::AbstractString)
-	corpus_inverted_values(corpus.pointer, layer)
+function vocabulary(corpus::Corpus, layer::AbstractString; top::Union{Integer, Nothing} = nothing)
+	values = corpus_inverted_values(corpus.pointer, layer)
+	entries = [(; value, count = something(corpus_inverted_count(corpus.pointer, layer, value), 0)) for value in values]
+	sort!(entries; by = e -> e.count, rev = true)
+	top === nothing ? entries : first(entries, min(top, length(entries)))
 end
 
 """

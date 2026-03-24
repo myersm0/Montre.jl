@@ -11,7 +11,10 @@ struct Hit
 	span::UnitRange{Int}
 	document_index::Int
 	sentence_index::Int
+	captures::Vector{Pair{String, UnitRange{Int}}}
 end
+
+Hit(span, document_index, sentence_index) = Hit(span, document_index, sentence_index, Pair{String, UnitRange{Int}}[])
 
 """
 	Component
