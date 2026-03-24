@@ -38,11 +38,32 @@ end
 Base.isopen(corpus::Corpus) = corpus.pointer != C_NULL
 
 """
-	token_count(corpus::Corpus) -> Int
+	token_count(corpus; component=nothing, document=nothing) -> Int
 
-Total number of tokens in the corpus (across all components).
+Token count for the corpus, a component, or a single document.
+
+```julia
+token_count(corpus)
+token_count(corpus; component="maupassant-fr")
+token_count(corpus; document="allouma.conllu")
+```
 """
-function token_count(corpus::Corpus)
+function token_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing, document::Union{AbstractString, Nothing} = nothing)
+	if component !== nothing && document !== nothing
+		error("Montre: specify component or document, not both")
+	end
+	if component !== nothing
+		comps = components(corpus)
+		idx = findfirst(c -> c.name == component, comps)
+		idx === nothing && error("Montre: component not found: $component")
+		return comps[idx].token_count
+	end
+	if document !== nothing
+		docs = documents(corpus)
+		idx = findfirst(d -> d == document, docs)
+		idx === nothing && error("Montre: document not found: $document")
+		return length(span_at(corpus, "document", idx - 1))
+	end
 	Int(corpus_token_count(corpus.pointer))
 end
 
@@ -66,13 +87,60 @@ function features(corpus::Corpus)
 end
 
 """
-	documents(corpus::Corpus) -> Vector{String}
+	documents(corpus; component=nothing) -> Vector{String}
 
 Document names in the corpus (typically source filenames).
+With `component`, returns only documents belonging to that component.
 """
-function documents(corpus::Corpus)
-	n = Int(corpus_document_count(corpus.pointer))
-	[corpus_document_name(corpus.pointer, i) for i in 0:n - 1]
+function documents(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing)
+	if component === nothing
+		n = Int(corpus_document_count(corpus.pointer))
+		return [corpus_document_name(corpus.pointer, i) for i in 0:n - 1]
+	end
+	r = document_range(corpus, component)
+	[corpus_document_name(corpus.pointer, i) for i in r]
+end
+
+"""
+	document_name(corpus::Corpus, index::Integer) -> String
+
+Document name by 0-based index.
+"""
+function document_name(corpus::Corpus, index::Integer)
+	corpus_document_name(corpus.pointer, index)
+end
+
+"""
+	document_range(corpus, component_name::AbstractString) -> UnitRange{Int}
+
+0-based document index range for a named component.
+"""
+function document_range(corpus::Corpus, component_name::AbstractString)
+	comps = components(corpus)
+	idx = findfirst(c -> c.name == component_name, comps)
+	idx === nothing && error("Montre: component not found: $component_name")
+	corpus_component_document_range(corpus.pointer, idx - 1)
+end
+
+"""
+	span_at(corpus, layer, index) -> UnitRange{Int}
+
+Token range for a span by layer name and 0-based index.
+"""
+function span_at(corpus::Corpus, layer::AbstractString, index::Integer)
+	result = corpus_span_at(corpus.pointer, layer, index)
+	result === nothing && error("Montre: invalid span layer or index")
+	return result
+end
+
+"""
+	span_containing(corpus, layer, position) -> (; index, span)
+
+Find the span containing a token position. Returns a named tuple
+with the span index and its token range, or `nothing` if not found.
+"""
+function span_containing(corpus::Corpus, layer::AbstractString, position::Integer)
+	corpus_span_containing(corpus.pointer, layer, position)
 end
 
 """
