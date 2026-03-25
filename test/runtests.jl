@@ -8,18 +8,39 @@ import Tables
 		@test first(hit.span) == 10
 		@test last(hit.span) == 14
 		@test length(hit.span) == 5
-
-		comp = Component("baudelaire-fr", "fr")
-		@test comp.name == "baudelaire-fr"
-		@test comp.language == "fr"
-
-		align = Alignment("labse", "baudelaire-fr", "baudelaire-en")
-		@test align.source == "baudelaire-fr"
-		@test align.target == "baudelaire-en"
+		@test isempty(hit.captures)
 
 		line = ConcordanceLine("the dark", "night", "was cold", "doc1.conllu", 42)
 		@test line.match_text == "night"
 		@test line.position == 42
+	end
+
+	@testset "Hit captures" begin
+		captures = ["a" => 10:12, "b" => 14:16]
+		hit = Hit(10:16, 0, 0, captures)
+
+		@test hit["a"] == 10:12
+		@test hit["b"] == 14:16
+		@test haskey(hit, "a")
+		@test haskey(hit, "b")
+		@test !haskey(hit, "c")
+		@test Set(keys(hit)) == Set(["a", "b"])
+		@test_throws KeyError hit["c"]
+
+		empty_hit = Hit(10:14, 0, 0)
+		@test !haskey(empty_hit, "a")
+		@test isempty(keys(empty_hit))
+	end
+
+	@testset "Hit show with captures" begin
+		hit = Hit(10:14, 0, 0)
+		@test repr(hit) == "Hit(10:14)"
+
+		hit_cap = Hit(10:16, 0, 0, ["a" => 10:12, "b" => 14:16])
+		r = repr(hit_cap)
+		@test startswith(r, "Hit(10:16")
+		@test contains(r, "a=10:12")
+		@test contains(r, "b=14:16")
 	end
 
 	@testset "Tables.jl interface — Hit" begin
@@ -53,9 +74,8 @@ import Tables
 	end
 
 	@testset "show methods" begin
-		@test repr(Hit(10:14, 0, 0)) == "Hit(10:14)"
-		@test repr(Component("fr", "fr")) == "Component(\"fr\", fr)"
-		@test contains(repr(Alignment("labse", "fr", "en")), "→")
+		@test repr(Component("fr", "fr", 100)) == "Component(\"fr\", fr, 100 tokens)"
+		@test contains(repr(Alignment("labse", "fr", "en", "sentence", "sentence", true, 50)), "→")
 	end
 
 	@testset "CQL strings" begin
@@ -76,7 +96,7 @@ import Tables
 		@test repr(q) == """cql"[pos='NOUN']" """[1:end-1]
 	end
 
-	# ---- integration tests (require a built corpus) ----
+	# ── integration tests (require a built corpus) ──
 
 	corpus_path = get(ENV, "MONTRE_TEST_CORPUS", nothing)
 
@@ -108,6 +128,47 @@ import Tables
 			close(corpus)
 		end
 
+		@testset "counting" begin
+			corpus = Montre.open(corpus_path)
+
+			@test document_count(corpus) > 0
+			@test sentence_count(corpus) > 0
+			@test component_count(corpus) >= 0
+
+			comps = components(corpus)
+			if length(comps) > 0
+				name = comps[1].name
+				@test token_count(corpus; component = name) > 0
+				@test document_count(corpus; component = name) > 0
+				@test sentence_count(corpus; component = name) > 0
+
+				docs = documents(corpus; component = name)
+				if length(docs) > 0
+					@test token_count(corpus; document = docs[1]) > 0
+					@test sentence_count(corpus; document = docs[1]) > 0
+					@test token_count(corpus; component = name, document = docs[1]) > 0
+				end
+			end
+
+			close(corpus)
+		end
+
+		@testset "vocabulary" begin
+			corpus = Montre.open(corpus_path)
+
+			vocab = vocabulary(corpus, "pos")
+			@test length(vocab) > 0
+			@test vocab[1] isa NamedTuple
+			@test haskey(vocab[1], :value)
+			@test haskey(vocab[1], :count)
+			@test vocab[1].count >= vocab[end].count
+
+			top_vocab = vocabulary(corpus, "pos"; top = 3)
+			@test length(top_vocab) == 3
+
+			close(corpus)
+		end
+
 		@testset "query" begin
 			corpus = Montre.open(corpus_path)
 
@@ -115,6 +176,7 @@ import Tables
 			@test length(hits) > 0
 			@test hits[1] isa Hit
 			@test first(hits[1].span) >= 0
+			@test isempty(hits[1].captures)
 
 			t = texts(hits)
 			@test length(t) == length(hits)
@@ -131,7 +193,7 @@ import Tables
 		@testset "concordance" begin
 			corpus = Montre.open(corpus_path)
 
-			conc = concordance(corpus, """[pos="NOUN"]"""; limit=3)
+			conc = concordance(corpus, """[pos="NOUN"]"""; limit = 3)
 			@test conc isa Concordance
 			@test length(conc) <= 3
 			@test conc[1] isa ConcordanceLine
@@ -143,7 +205,7 @@ import Tables
 		@testset "frequency" begin
 			corpus = Montre.open(corpus_path)
 
-			freqs = frequency(corpus, """[pos="NOUN"]"""; by="lemma")
+			freqs = frequency(corpus, """[pos="NOUN"]"""; by = "lemma")
 			@test length(freqs) > 0
 			@test freqs[1].count >= freqs[end].count
 
@@ -167,9 +229,34 @@ import Tables
 				hits_cql = query(corpus, cql"[pos='NOUN']")
 				@test length(hits_cql) == length(hits_str)
 
-				@test length(concordance(corpus, cql"[pos='NOUN']"; limit=3)) <= 3
+				@test length(concordance(corpus, cql"[pos='NOUN']"; limit = 3)) <= 3
 				@test count(corpus, cql"[pos='NOUN']") == length(hits_cql)
 				@test length(frequency(corpus, cql"[pos='NOUN']")) > 0
+			end
+		end
+
+		@testset "labeled captures" begin
+			Montre.open(corpus_path) do corpus
+				hits = query(corpus, CQL("a:[pos='ADJ'] b:[pos='NOUN']"))
+				if length(hits) > 0
+					hit = hits[1]
+					@test haskey(hit, "a")
+					@test haskey(hit, "b")
+					@test hit["a"] isa UnitRange
+					@test hit["b"] isa UnitRange
+					@test length(hit.captures) == 2
+				end
+			end
+		end
+
+		@testset "global constraints with component" begin
+			Montre.open(corpus_path) do corpus
+				comps = components(corpus)
+				if length(comps) > 0
+					name = comps[1].name
+					hits = query(corpus, CQL("a:[pos='NOUN'] []{0,5} b:[pos='NOUN'] :: a.lemma = b.lemma"); component = name)
+					@test hits isa HitList
+				end
 			end
 		end
 
@@ -186,6 +273,16 @@ import Tables
 
 				pt = texts(projected)
 				@test length(pt) == length(projected)
+			end
+
+			@testset "edges" begin
+				aligns = alignments(corpus)
+				edge_data = edges(corpus, aligns[1].name)
+				@test length(edge_data) > 0
+				@test haskey(edge_data[1], :source_document)
+				@test haskey(edge_data[1], :source_sentence)
+				@test haskey(edge_data[1], :target_document)
+				@test haskey(edge_data[1], :target_sentence)
 			end
 		end
 		close(corpus)
