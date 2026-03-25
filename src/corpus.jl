@@ -37,31 +37,44 @@ end
 
 Base.isopen(corpus::Corpus) = corpus.pointer != C_NULL
 
+function _resolve_document(corpus::Corpus, document::AbstractString; component::Union{AbstractString, Nothing} = nothing)
+	if component !== nothing
+		r = document_range(corpus, component)
+		for i in r
+			if corpus_document_name(corpus.pointer, i) == document
+				return i
+			end
+		end
+		error("Montre: document '$document' not found in component '$component'")
+	end
+	doc_idx = corpus_document_index_by_name(corpus.pointer, document)
+	doc_idx === nothing && error("Montre: document not found: $document")
+	return doc_idx
+end
+
 """
 	token_count(corpus; component=nothing, document=nothing) -> Int
 
 Token count for the corpus, a component, or a single document.
+When both `component` and `document` are given, resolves the document within the component.
 
 ```julia
 token_count(corpus)
 token_count(corpus; component="maupassant-fr")
 token_count(corpus; document="allouma.conllu")
+token_count(corpus; component="maupassant-fr", document="allouma.conllu")
 ```
 """
 function token_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing, document::Union{AbstractString, Nothing} = nothing)
-	if component !== nothing && document !== nothing
-		error("Montre: specify component or document, not both")
+	if document !== nothing
+		doc_idx = _resolve_document(corpus, document; component)
+		return length(span_at(corpus, "document", doc_idx))
 	end
 	if component !== nothing
 		comps = components(corpus)
 		idx = findfirst(c -> c.name == component, comps)
 		idx === nothing && error("Montre: component not found: $component")
 		return comps[idx].token_count
-	end
-	if document !== nothing
-		doc_idx = corpus_document_index_by_name(corpus.pointer, document)
-		doc_idx === nothing && error("Montre: document not found: $document")
-		return length(span_at(corpus, "document", doc_idx))
 	end
 	Int(corpus_token_count(corpus.pointer))
 end
@@ -89,20 +102,17 @@ end
 	sentence_count(corpus; component=nothing, document=nothing) -> Int
 
 Sentence count for the corpus, a component, or a single document.
+When both `component` and `document` are given, resolves the document within the component.
 """
 function sentence_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing, document::Union{AbstractString, Nothing} = nothing)
-	if component !== nothing && document !== nothing
-		error("Montre: specify component or document, not both")
+	if document !== nothing
+		doc_idx = _resolve_document(corpus, document; component)
+		doc_span = span_at(corpus, "document", doc_idx)
+		return something(corpus_span_count_in_range(corpus.pointer, "sentence", first(doc_span), last(doc_span) + 1), 0)
 	end
 	if component !== nothing
 		r = _component_token_range(corpus, component)
 		return something(corpus_span_count_in_range(corpus.pointer, "sentence", first(r), last(r) + 1), 0)
-	end
-	if document !== nothing
-		doc_idx = corpus_document_index_by_name(corpus.pointer, document)
-		doc_idx === nothing && error("Montre: document not found: $document")
-		doc_span = span_at(corpus, "document", doc_idx)
-		return something(corpus_span_count_in_range(corpus.pointer, "sentence", first(doc_span), last(doc_span) + 1), 0)
 	end
 	something(corpus_span_count(corpus.pointer, "sentence"), 0)
 end
@@ -299,6 +309,31 @@ function alignments(corpus::Corpus)
 			Int(corpus_alignment_edge_count(corpus.pointer, i)),
 		)
 		for i in 0:n - 1
+	]
+end
+
+"""
+	edges(corpus::Corpus, alignment::AbstractString) -> Vector{NamedTuple}
+
+Raw alignment edges as `(; source_document, source_sentence, target_document, target_sentence)`
+named tuples. Document and sentence indices are 0-based within their respective components.
+
+```julia
+for e in edges(corpus, "labse")
+    println(e.source_document, ":", e.source_sentence, " → ", e.target_document, ":", e.target_sentence)
+end
+```
+"""
+function edges(corpus::Corpus, alignment::AbstractString)
+	flat, n = corpus_alignment_edges(corpus.pointer, alignment)
+	[
+		(;
+			source_document = flat[4i - 3],
+			source_sentence = flat[4i - 2],
+			target_document = flat[4i - 1],
+			target_sentence = flat[4i],
+		)
+		for i in 1:n
 	]
 end
 

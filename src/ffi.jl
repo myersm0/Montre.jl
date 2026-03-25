@@ -33,6 +33,15 @@ function take_u64_array(array::Ptr{UInt64}, n::Integer)
 	return result
 end
 
+function take_u32_array(array::Ptr{UInt32}, n::Integer)
+	if array == C_NULL || n == 0
+		return Int[]
+	end
+	result = [Int(unsafe_load(array, i)) for i in 1:n]
+	ccall((:montre_u32_array_free, libmontre), Cvoid, (Ptr{UInt32}, UInt64), array, UInt64(n))
+	return result
+end
+
 function take_i32_array(array::Ptr{Int32}, n::Integer)
 	if array == C_NULL || n == 0
 		return Int32[]
@@ -506,6 +515,17 @@ function corpus_alignment_directed(pointer::Ptr{Nothing}, index::Integer)
 	)
 	result < 0 && return nothing
 	return result != 0
+end
+
+function corpus_alignment_edges(pointer::Ptr{Nothing}, name::AbstractString)
+	out_len = Ref{UInt64}(0)
+	array = ccall(
+		(:montre_corpus_alignment_edges, libmontre), Ptr{UInt32},
+		(Ptr{Nothing}, Cstring, Ptr{UInt64}), pointer, name, out_len,
+	)
+	n = Int(out_len[])
+	flat = take_u32_array(array, n * 4)
+	return flat, n
 end
 
 # ---- projection ----

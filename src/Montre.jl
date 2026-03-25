@@ -19,7 +19,7 @@ include("ffi.jl")
 include("corpus.jl")
 export token_count, document_count, sentence_count, component_count,
 	layers, features, documents, document_name, document_range,
-	components, alignments, span_layers, span_at, span_containing,
+	components, alignments, edges, span_layers, span_at, span_containing,
 	vocabulary, annotation, annotations, span_text
 
 include("query.jl")
