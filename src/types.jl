@@ -16,6 +16,16 @@ end
 
 Hit(span, document_index, sentence_index) = Hit(span, document_index, sentence_index, Pair{String, UnitRange{Int}}[])
 
+function Base.getindex(hit::Hit, label::AbstractString)
+	for (name, span) in hit.captures
+		name == label && return span
+	end
+	throw(KeyError(label))
+end
+
+Base.haskey(hit::Hit, label::AbstractString) = any(p -> p.first == label, hit.captures)
+Base.keys(hit::Hit) = [p.first for p in hit.captures]
+
 """
 	Component
 
