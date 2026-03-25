@@ -1,128 +1,11 @@
 const _exiting = Ref(false)
 atexit(() -> _exiting[] = true)
 
-"""
-	Hit
+_layer_name(x::Symbol) = String(x)
+_layer_name(x::AbstractString) = String(x)
 
-A single query result: a span of token positions plus document and sentence indices.
-Access the matched range via `hit.span`, which is a `UnitRange{Int}`.
-"""
-struct Hit
-	span::UnitRange{Int}
-	document_index::Int
-	sentence_index::Int
-	captures::Vector{Pair{String, UnitRange{Int}}}
-end
+const Layer = Union{Symbol, AbstractString}
 
-Hit(span, document_index, sentence_index) = Hit(span, document_index, sentence_index, Pair{String, UnitRange{Int}}[])
-
-function Base.getindex(hit::Hit, label::AbstractString)
-	for (name, span) in hit.captures
-		name == label && return span
-	end
-	throw(KeyError(label))
-end
-
-Base.haskey(hit::Hit, label::AbstractString) = any(p -> p.first == label, hit.captures)
-Base.keys(hit::Hit) = [p.first for p in hit.captures]
-
-"""
-	Component
-
-A named subcorpus within a multi-component corpus (e.g. a language or edition).
-"""
-struct Component
-	name::String
-	language::String
-	token_count::Int
-end
-
-"""
-	Alignment
-
-A named alignment relation between two components, e.g. sentence-level
-translation alignments produced by LaBSE or vecalign.
-"""
-struct Alignment
-	name::String
-	source::String
-	target::String
-	source_layer::String
-	target_layer::String
-	directed::Bool
-	edge_count::Int
-end
-
-"""
-	ConcordanceLine
-
-A single KWIC (Key Word In Context) line: left context, matched text, right context,
-source document name, and corpus position.
-"""
-struct ConcordanceLine
-	left::String
-	match_text::String
-	right::String
-	document::String
-	position::Int
-end
-
-"""
-	Concordance
-
-A collection of [`ConcordanceLine`](@ref)s with a KWIC display.
-Implements `Tables.jl` for conversion to `DataFrame`.
-Indexable and iterable.
-"""
-struct Concordance
-	lines::Vector{ConcordanceLine}
-end
-
-Base.length(c::Concordance) = length(c.lines)
-Base.getindex(c::Concordance, i) = c.lines[i]
-Base.iterate(c::Concordance, s...) = iterate(c.lines, s...)
-Base.firstindex(c::Concordance) = 1
-Base.lastindex(c::Concordance) = length(c.lines)
-Base.eltype(::Type{Concordance}) = ConcordanceLine
-
-"""
-	CQL(s::AbstractString)
-
-A CQL query string. Single quotes in `s` are converted to double quotes,
-so you can write `CQL("[pos='NOUN']")` instead of escaping.
-Supports interpolation, unlike the [`@cql_str`](@ref) macro.
-
-See also: [`@cql_str`](@ref)
-"""
-struct CQL
-	query::String
-	CQL(s::AbstractString) = new(replace(s, "'" => "\""))
-end
-
-"""
-	@cql_str
-
-String macro for CQL queries. Single quotes become double quotes;
-backslashes and `\$` are passed through literally (no interpolation).
-
-```julia
-query(corpus, cql"[pos='NOUN']")
-query(corpus, cql"[lemma='être' & pos='VERB']")
-query(corpus, cql"[lemma=/^(bleu|blanc)\$/]")
-```
-
-For dynamic queries with interpolation, use [`CQL()`](@ref) instead.
-"""
-macro cql_str(s)
-	:(CQL($s))
-end
-
-"""
-	Corpus
-
-A handle to an opened montre corpus. Created via [`Montre.open`](@ref).
-Close with `close(corpus)` or use the `do`-block form of `Montre.open`.
-"""
 mutable struct Corpus
 	pointer::Ptr{Nothing}
 
@@ -138,23 +21,71 @@ mutable struct Corpus
 	end
 end
 
-"""
-	HitList
+struct Component
+	name::String
+	language::String
+	token_count::Int
+end
 
-A materialized set of query results, backed by a Rust-side `Vec<Hit>`.
-Indexable (`hits[i]` returns a [`Hit`](@ref)) and iterable.
-Holds a reference to its parent [`Corpus`](@ref), so functions like
-[`texts`](@ref), [`concordance`](@ref), and [`project`](@ref) can
-be called on it directly without passing the corpus.
+struct Alignment
+	name::String
+	source::String
+	target::String
+	source_layer::String
+	target_layer::String
+	directed::Bool
+	edge_count::Int
+end
 
-Implements `Tables.jl` for conversion to `DataFrame`.
-"""
-mutable struct HitList
+struct CaptureStore
+	names::Vector{String}
+	starts::Dict{String, Vector{Int}}
+	ends::Dict{String, Vector{Int}}
+end
+
+CaptureStore() = CaptureStore(String[], Dict{String, Vector{Int}}(), Dict{String, Vector{Int}}())
+Base.isempty(store::CaptureStore) = isempty(store.names)
+
+const _no_captures = Pair{String, UnitRange{Int}}[]
+
+struct Hit
+	span::UnitRange{Int}
+	document_index::Int
+	sentence_index::Int
+	captures::Vector{Pair{String, UnitRange{Int}}}
+end
+
+Hit(span, document_index, sentence_index) = Hit(span, document_index, sentence_index, _no_captures)
+
+function captures(hit::Hit)
+	hit.captures
+end
+
+function captures(hit::Hit, name::AbstractString)
+	for (n, span) in hit.captures
+		n == name && return span
+	end
+	throw(KeyError(name))
+end
+
+Base.haskey(hit::Hit, name::AbstractString) = any(p -> p.first == name, hit.captures)
+
+mutable struct HitList <: AbstractVector{Hit}
 	pointer::Ptr{Nothing}
 	corpus::Corpus
+	starts::Vector{Int}
+	ends::Vector{Int}
+	document_indices::Vector{Int}
+	sentence_indices::Vector{Int}
+	capture_store::CaptureStore
+	column_cache::Dict{String, Vector{Vector{String}}}
 
-	function HitList(pointer::Ptr{Nothing}, corpus::Corpus)
-		hitlist = new(pointer, corpus)
+	function HitList(pointer, corpus, starts, ends, document_indices, sentence_indices, capture_store)
+		hitlist = new(
+			pointer, corpus, starts, ends,
+			document_indices, sentence_indices,
+			capture_store, Dict{String, Vector{Vector{String}}}(),
+		)
 		finalizer(hitlist) do h
 			if !_exiting[] && h.pointer != C_NULL
 				hitlist_free(h.pointer)
@@ -165,12 +96,38 @@ mutable struct HitList
 	end
 end
 
-"""
-	ProjectionResult
+Base.size(hitlist::HitList) = (length(hitlist.starts),)
 
-Result of projecting hits through an alignment. Contains the projected
-[`HitList`](@ref) plus diagnostic counts.
-"""
+function Base.getindex(hitlist::HitList, i::Integer)
+	@boundscheck checkbounds(hitlist, i)
+	store = hitlist.capture_store
+	caps = if isempty(store)
+		_no_captures
+	else
+		[name => store.starts[name][i]:store.ends[name][i] - 1 for name in store.names]
+	end
+	Hit(hitlist.starts[i]:hitlist.ends[i] - 1, hitlist.document_indices[i], hitlist.sentence_indices[i], caps)
+end
+
+struct ConcordanceLine
+	left::String
+	match_text::String
+	right::String
+	document::String
+	position::Int
+end
+
+struct Concordance
+	lines::Vector{ConcordanceLine}
+end
+
+Base.length(c::Concordance) = length(c.lines)
+Base.getindex(c::Concordance, i) = c.lines[i]
+Base.iterate(c::Concordance, s...) = iterate(c.lines, s...)
+Base.firstindex(::Concordance) = 1
+Base.lastindex(c::Concordance) = length(c.lines)
+Base.eltype(::Type{Concordance}) = ConcordanceLine
+
 struct ProjectionResult
 	hits::HitList
 	unmapped::Int
@@ -179,3 +136,12 @@ struct ProjectionResult
 end
 
 Base.length(pr::ProjectionResult) = length(pr.hits)
+
+struct CQL
+	query::String
+	CQL(s::AbstractString) = new(replace(s, "'" => "\""))
+end
+
+macro cql_str(s)
+	:(CQL($s))
+end

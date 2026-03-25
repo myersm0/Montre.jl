@@ -1,31 +1,45 @@
-"""
-	query(corpus, cql; component=nothing) -> HitList
-	query(corpus, cql::CQL; component=nothing) -> HitList
+# ---- SoA construction ----
 
-Run a CQL query and return a [`HitList`](@ref).
-Optionally restrict to a named `component`.
+function _build_capture_store(pointer::Ptr{Nothing}, n::Int)
+	n == 0 && return CaptureStore()
+	n_captures = Int(hit_capture_count(pointer, 0))
+	n_captures == 0 && return CaptureStore()
 
-```julia
-hits = query(corpus, cql"[pos='ADJ'] [pos='NOUN']")
-hits = query(corpus, cql"[pos='NOUN']"; component="baudelaire-fr")
-```
-"""
+	names = [hit_capture_name(pointer, 0, UInt32(j)) for j in 0:n_captures - 1]
+	starts = Dict(name => Vector{Int}(undef, n) for name in names)
+	ends = Dict(name => Vector{Int}(undef, n) for name in names)
+
+	for i in 0:n - 1
+		for (j, name) in enumerate(names)
+			starts[name][i + 1] = Int(hit_capture_start(pointer, i, UInt32(j - 1)))
+			ends[name][i + 1] = Int(hit_capture_end(pointer, i, UInt32(j - 1)))
+		end
+	end
+
+	CaptureStore(names, starts, ends)
+end
+
+function _materialize_hitlist(pointer::Ptr{Nothing}, corpus::Corpus)
+	hitlist_populate_context(pointer, corpus.pointer)
+	starts = hitlist_starts(pointer)
+	ends = hitlist_ends(pointer)
+	document_indices = hitlist_document_indices(pointer)
+	sentence_indices = hitlist_sentence_indices(pointer)
+	capture_store = _build_capture_store(pointer, length(starts))
+	HitList(pointer, corpus, starts, ends, document_indices, sentence_indices, capture_store)
+end
+
+# ---- query ----
+
 function query(corpus::Corpus, cql::AbstractString; component::Union{AbstractString, Nothing} = nothing)
 	pointer = if component === nothing
 		query(corpus.pointer, cql)
 	else
 		query_in_component(corpus.pointer, cql, component)
 	end
-	hitlist = HitList(pointer, corpus)
-	hitlist_populate_context(hitlist.pointer, corpus.pointer)
-	return hitlist
+	_materialize_hitlist(pointer, corpus)
 end
 
-"""
-	count(corpus, cql; component=nothing) -> Int
-
-Number of hits for a CQL query, without materializing a full [`HitList`](@ref).
-"""
 function Base.count(corpus::Corpus, cql::AbstractString; component::Union{AbstractString, Nothing} = nothing)
 	if component === nothing
 		Int(query_count(corpus.pointer, cql))
@@ -34,85 +48,56 @@ function Base.count(corpus::Corpus, cql::AbstractString; component::Union{Abstra
 	end
 end
 
-# ---- HitList iteration and indexing ----
+# ---- column extraction ----
 
-Base.length(hitlist::HitList) = Int(hitlist_len(hitlist.pointer))
-Base.size(hitlist::HitList) = (length(hitlist),)
-Base.firstindex(::HitList) = 1
-Base.lastindex(hitlist::HitList) = length(hitlist)
-Base.eltype(::Type{HitList}) = Hit
+function column(hitlist::HitList, layer::Layer)
+	layer_str = _layer_name(layer)
+	cached = get(hitlist.column_cache, layer_str, nothing)
+	cached !== nothing && return cached
 
-function Base.getindex(hitlist::HitList, index::Integer)
-	@boundscheck if index < 1 || index > length(hitlist)
-		throw(BoundsError(hitlist, index))
+	n = length(hitlist)
+	result = Vector{Vector{String}}(undef, n)
+	for i in 1:n
+		result[i] = corpus_token_annotations(hitlist.corpus.pointer, hitlist.starts[i], hitlist.ends[i], layer_str)
 	end
-	zero_index = UInt64(index - 1)
-	start = Int(hit_start(hitlist.pointer, zero_index))
-	stop = Int(hit_end(hitlist.pointer, zero_index)) - 1
-	document_index = Int(hit_document_index(hitlist.pointer, zero_index))
-	sentence_index = Int(hit_sentence_index(hitlist.pointer, zero_index))
-	n_captures = Int(hit_capture_count(hitlist.pointer, zero_index))
-	captures = if n_captures > 0
-		[
-			hit_capture_name(hitlist.pointer, zero_index, UInt32(i)) =>
-				Int(hit_capture_start(hitlist.pointer, zero_index, UInt32(i))):Int(hit_capture_end(hitlist.pointer, zero_index, UInt32(i))) - 1
-			for i in 0:n_captures - 1
-		]
-	else
-		Pair{String, UnitRange{Int}}[]
-	end
-	return Hit(start:stop, document_index, sentence_index, captures)
+	hitlist.column_cache[layer_str] = result
+	return result
 end
 
-function Base.iterate(hitlist::HitList, state = 1)
-	state > length(hitlist) && return nothing
-	return (hitlist[state], state + 1)
+function column(hitlist::HitList, capture_name::AbstractString, layer::Layer)
+	store = hitlist.capture_store
+	haskey(store.starts, capture_name) || throw(KeyError(capture_name))
+
+	layer_str = _layer_name(layer)
+	cap_starts = store.starts[capture_name]
+	cap_ends = store.ends[capture_name]
+
+	n = length(hitlist)
+	result = Vector{Vector{String}}(undef, n)
+	for i in 1:n
+		result[i] = corpus_token_annotations(hitlist.corpus.pointer, cap_starts[i], cap_ends[i], layer_str)
+	end
+	return result
 end
 
-# ---- bulk text extraction ----
+# ---- captures at hitlist level ----
 
-"""
-	texts(hitlist; layer="word") -> Vector{String}
+function captures(hitlist::HitList)
+	hitlist.capture_store.names
+end
 
-Matched text for every hit, extracted in a single bulk FFI call.
-Use `layer` to select the annotation layer (e.g. `"lemma"`, `"pos"`).
-
-```julia
-texts(hits)                  # word forms
-texts(hits; layer="lemma")   # lemma forms
-```
-"""
-function texts(hitlist::HitList; layer::AbstractString = "word")
-	hitlist_texts(hitlist.pointer, hitlist.corpus.pointer, layer)
+function captures(hitlist::HitList, name::AbstractString)
+	store = hitlist.capture_store
+	haskey(store.starts, name) || throw(KeyError(name))
+	[store.starts[name][i]:store.ends[name][i] - 1 for i in 1:length(hitlist)]
 end
 
 # ---- projection ----
 
-"""
-	project(corpus, hitlist, alignment) -> ProjectionResult
-	project(hitlist, alignment) -> ProjectionResult
-	project(corpus, cql, alignment) -> ProjectionResult
-
-Project hits through a named alignment to the target component.
-Returns a [`ProjectionResult`](@ref) containing the target-side [`HitList`](@ref)
-plus diagnostic counts (unmapped, no_alignment, projected).
-
-Access the hits via `result.hits`, or use `texts`, `concordance`, etc. directly
-on the result.
-
-```julia
-fr_hits = query(corpus, cql"[lemma='âme']"; component="maupassant-fr")
-result = project(fr_hits, "labse")
-texts(result.hits)
-result.projected    # number of unique target sentences
-result.no_alignment # source hits with no alignment edge
-```
-"""
 function project(corpus::Corpus, hitlist::HitList, alignment::AbstractString)
 	raw = project(corpus.pointer, hitlist.pointer, alignment)
-	projected = HitList(raw.pointer, corpus)
-	hitlist_populate_context(projected.pointer, corpus.pointer)
-	return ProjectionResult(projected, raw.unmapped, raw.no_alignment, raw.projected)
+	projected = _materialize_hitlist(raw.pointer, corpus)
+	ProjectionResult(projected, raw.unmapped, raw.no_alignment, raw.projected)
 end
 
 project(hitlist::HitList, alignment::AbstractString) = project(hitlist.corpus, hitlist, alignment)
@@ -123,49 +108,35 @@ end
 
 # ---- concordance ----
 
-"""
-	concordance(corpus, hitlist; context=5, layer="word", limit=20) -> Concordance
-	concordance(corpus, cql; component=nothing, ...) -> Concordance
-	concordance(hitlist; ...) -> Concordance
-
-KWIC (Key Word In Context) display of query results.
-`context` is the number of tokens on each side of the match.
-
-```julia
-concordance(corpus, cql"[lemma='âme']"; limit=10)
-concordance(hits; context=8)
-```
-"""
 function concordance(
 	corpus::Corpus,
 	hitlist::HitList;
 	context::Integer = 5,
-	layer::AbstractString = "word",
+	layer::Layer = :word,
 	limit::Integer = 20,
 )
+	layer_str = _layer_name(layer)
 	total = min(length(hitlist), limit)
-	token_total = token_count(corpus)
+	total_tokens = token_count(corpus)
 
 	lines = map(1:total) do i
-		hit = hitlist[i]
-		left_start = max(first(hit.span) - context, 0)
-		right_end = min(last(hit.span) + 1 + context, token_total)
+		hit_start = hitlist.starts[i]
+		hit_end = hitlist.ends[i]
 
-		left_text = span_text(corpus, left_start, first(hit.span); layer = layer)
-		match_text = span_text(corpus, hit; layer = layer)
-		right_text = span_text(corpus, last(hit.span) + 1, right_end; layer = layer)
+		left_start = max(hit_start - context, 0)
+		right_end = min(hit_end + context, total_tokens)
 
-		document_name = corpus_document_name(corpus.pointer, hit.document_index)
-		if document_name === nothing
-			document_name = "?"
-		end
+		left_text = corpus_span_text(corpus.pointer, left_start, hit_start, layer_str)
+		match_text = corpus_span_text(corpus.pointer, hit_start, hit_end, layer_str)
+		right_text = corpus_span_text(corpus.pointer, hit_end, right_end, layer_str)
+		doc_name = corpus_document_name(corpus.pointer, hitlist.document_indices[i])
 
 		ConcordanceLine(
 			something(left_text, ""),
 			something(match_text, ""),
 			something(right_text, ""),
-			document_name,
-			first(hit.span),
+			something(doc_name, "?"),
+			hit_start,
 		)
 	end
 
@@ -180,30 +151,17 @@ concordance(hitlist::HitList; kwargs...) = concordance(hitlist.corpus, hitlist; 
 
 # ---- frequency ----
 
-"""
-	frequency(corpus, hitlist; by="word") -> Vector{NamedTuple}
-	frequency(corpus, cql; by="word", component=nothing) -> Vector{NamedTuple}
-	frequency(hitlist; by="word") -> Vector{NamedTuple}
-
-Frequency table of matched forms, sorted descending.
-Use `by` to count by a specific layer (e.g. `"lemma"`, `"pos"`).
-Returns a vector of `(; value, count)` named tuples (Tables.jl-compatible).
-
-```julia
-frequency(corpus, cql"[pos='NOUN']"; by="lemma")
-frequency(hits; by="lemma")
-```
-"""
-function frequency(corpus::Corpus, hitlist::HitList; by::AbstractString = "word")
-	forms = texts(hitlist; layer = by)
+function frequency(corpus::Corpus, hitlist::HitList; by::Layer = :word)
+	layer_data = column(hitlist, by)
 	counts = Dict{String, Int}()
-	for form in forms
-		counts[form] = get(counts, form, 0) + 1
+	for tokens in layer_data
+		key = join(tokens, " ")
+		counts[key] = get(counts, key, 0) + 1
 	end
 	sort!([(; value, count) for (value, count) in counts]; by = last, rev = true)
 end
 
-function frequency(corpus::Corpus, cql::AbstractString; by::AbstractString = "word", component::Union{AbstractString, Nothing} = nothing)
+function frequency(corpus::Corpus, cql::AbstractString; by::Layer = :word, component::Union{AbstractString, Nothing} = nothing)
 	frequency(corpus, query(corpus, cql; component); by = by)
 end
 
@@ -211,30 +169,14 @@ frequency(hitlist::HitList; kwargs...) = frequency(hitlist.corpus, hitlist; kwar
 
 # ---- collocates ----
 
-"""
-	collocates(corpus, hitlist; window=5, layer="lemma", positional=false)
-	collocates(corpus, cql; component=nothing, ...)
-	collocates(hitlist; ...)
-
-Context words co-occurring with query hits within a ±`window` token span.
-
-With `positional=false` (default), returns `(; token, count)` tuples sorted by frequency.
-With `positional=true`, returns `(; token, position, count)` tuples where
-`position` is the offset relative to the match (negative = left, positive = right).
-
-```julia
-collocates(hits; window=5, layer="lemma")
-collocates(hits; window=5, layer="lemma", positional=true)
-```
-"""
 function collocates(
 	corpus::Corpus,
 	hitlist::HitList;
 	window::Integer = 5,
-	layer::AbstractString = "lemma",
+	layer::Layer = :lemma,
 	positional::Bool = false,
 )
-	raw = context_tokens(hitlist.pointer, corpus.pointer, window, layer)
+	raw = context_tokens(hitlist.pointer, corpus.pointer, window, _layer_name(layer))
 
 	if positional
 		counts = Dict{Tuple{String, Int}, Int}()
@@ -260,19 +202,173 @@ end
 
 collocates(hitlist::HitList; kwargs...) = collocates(hitlist.corpus, hitlist; kwargs...)
 
-# ---- display ----
+# ---- CQL dispatch ----
+
+query(corpus::Corpus, cql::CQL; kwargs...) = query(corpus, cql.query; kwargs...)
+Base.count(corpus::Corpus, cql::CQL; kwargs...) = count(corpus, cql.query; kwargs...)
+concordance(corpus::Corpus, cql::CQL; kwargs...) = concordance(corpus, cql.query; kwargs...)
+frequency(corpus::Corpus, cql::CQL; kwargs...) = frequency(corpus, cql.query; kwargs...)
+collocates(corpus::Corpus, cql::CQL; kwargs...) = collocates(corpus, cql.query; kwargs...)
+project(corpus::Corpus, cql::CQL, alignment::AbstractString) = project(corpus, cql.query, alignment)
+
+# ---- ProjectionResult forwarding ----
+
+column(pr::ProjectionResult, args...) = column(pr.hits, args...)
+captures(pr::ProjectionResult, args...) = captures(pr.hits, args...)
+concordance(pr::ProjectionResult; kwargs...) = concordance(pr.hits; kwargs...)
+frequency(pr::ProjectionResult; kwargs...) = frequency(pr.hits; kwargs...)
+collocates(pr::ProjectionResult; kwargs...) = collocates(pr.hits; kwargs...)
+
+# ---- display helpers ----
+
+const _conllu_layers = ["word", "lemma", "pos", "xpos", "feats", "head", "deprel"]
+
+function _corpus_conllu_layers(corpus::Corpus)
+	available = Set(layers(corpus))
+	filter(l -> l in available, _conllu_layers)
+end
+
+function _show_hit(io::IO, corpus::Corpus, hit_index::Int, hit_start::Int, hit_end::Int, doc_idx::Int, capture_store::CaptureStore; show_layers::Vector{String})
+	doc_name = something(corpus_document_name(corpus.pointer, doc_idx), "?")
+	sent = corpus_span_containing(corpus.pointer, "sentence", hit_start)
+
+	print(io, "\e[1;34mHit $(hit_index)\e[0m")
+	if sent !== nothing
+		sent_span = sent.span
+		sent_start = first(sent_span)
+		sent_end = last(sent_span) + 1
+
+		# sent_id = document-sentence_index_within_doc
+		doc_span_result = corpus_span_containing(corpus.pointer, "document", hit_start)
+		if doc_span_result !== nothing
+			doc_start = first(doc_span_result.span)
+			local_sent = corpus_span_containing(corpus.pointer, "sentence", hit_start)
+			if local_sent !== nothing
+				first_sent = corpus_span_containing(corpus.pointer, "sentence", doc_start)
+				sent_within_doc = if first_sent !== nothing
+					local_sent.index - first_sent.index + 1
+				else
+					local_sent.index + 1
+				end
+				println(io)
+				print(io, "\e[2m# sent_id = $(doc_name)-$(sent_within_doc)\e[0m")
+			end
+		end
+
+		# text line with match bolded
+		pre = corpus_span_text(corpus.pointer, sent_start, hit_start, "word")
+		matched = corpus_span_text(corpus.pointer, hit_start, hit_end, "word")
+		post = corpus_span_text(corpus.pointer, hit_end, sent_end, "word")
+
+		println(io)
+		print(io, "\e[2m# text = \e[0m")
+		pre !== nothing && length(pre) > 0 && print(io, "\e[2m", pre, " \e[0m")
+		print(io, "\e[1m", something(matched, ""), "\e[0m")
+		post !== nothing && length(post) > 0 && print(io, "\e[2m ", post, "\e[0m")
+	else
+		print(io, " \e[2m($(doc_name))\e[0m")
+	end
+
+	# token rows for matched span
+	n_tokens = hit_end - hit_start
+	n_tokens == 0 && return
+
+	# figure out which capture labels apply to which positions
+	capture_labels = Dict{Int, Vector{String}}()
+	if !isempty(capture_store)
+		for name in capture_store.names
+			cap_start = capture_store.starts[name][hit_index]
+			cap_end = capture_store.ends[name][hit_index]
+			for pos in cap_start:cap_end - 1
+				labels = get!(capture_labels, pos, String[])
+				push!(labels, name)
+			end
+		end
+	end
+
+	# get sentence start for computing local token IDs
+	local_id_offset = if sent !== nothing
+		first(sent.span)
+	else
+		hit_start
+	end
+
+	# collect column data
+	col_values = Dict{String, Vector{String}}()
+	for layer in show_layers
+		vals = corpus_token_annotations(corpus.pointer, hit_start, hit_end, layer)
+		col_values[layer] = isempty(vals) ? fill("_", n_tokens) : vals
+	end
+
+	# compute column widths
+	id_strings = [string(hit_start - local_id_offset + i) for i in 1:n_tokens]
+	id_width = maximum(length, id_strings)
+	col_widths = Dict(layer => max(length(layer), maximum(length, get(col_values, layer, ["_"]))) for layer in show_layers)
+
+	println(io)
+	for j in 1:n_tokens
+		global_pos = hit_start + j - 1
+
+		# capture label annotation in margin
+		if haskey(capture_labels, global_pos)
+			label_str = join(capture_labels[global_pos], ",")
+			print(io, "\e[33m", lpad(label_str, 3), "\e[0m ")
+		else
+			print(io, "    ")
+		end
+
+		print(io, lpad(id_strings[j], id_width), "\t")
+		for (k, layer) in enumerate(show_layers)
+			val = col_values[layer][j]
+			print(io, val)
+			k < length(show_layers) && print(io, "\t")
+		end
+		j < n_tokens && println(io)
+	end
+end
+
+function Base.show(io::IO, ::MIME"text/plain", hitlist::HitList)
+	n = length(hitlist)
+	n_docs = length(unique(hitlist.document_indices))
+	print(io, "\e[1m$(n) hits\e[0m across $(n_docs) documents")
+
+	n == 0 && return
+
+	show_layers = _corpus_conllu_layers(hitlist.corpus)
+	display_count = min(n, 5)
+
+	for i in 1:display_count
+		println(io)
+		println(io)
+		_show_hit(
+			io, hitlist.corpus, i,
+			hitlist.starts[i], hitlist.ends[i], hitlist.document_indices[i],
+			hitlist.capture_store;
+			show_layers = show_layers,
+		)
+	end
+
+	if n > display_count
+		println(io)
+		print(io, "\n\e[2m… $(n - display_count) more hits\e[0m")
+	end
+end
 
 function Base.show(io::IO, hitlist::HitList)
 	print(io, "HitList($(length(hitlist)) hits)")
 end
 
-function Base.show(io::IO, hit::Hit)
+function Base.show(io::IO, ::MIME"text/plain", hit::Hit)
 	print(io, "Hit($(first(hit.span)):$(last(hit.span))")
 	if !isempty(hit.captures)
 		print(io, ", ")
 		join(io, ("$(p.first)=$(first(p.second)):$(last(p.second))" for p in hit.captures), ", ")
 	end
 	print(io, ")")
+end
+
+function Base.show(io::IO, hit::Hit)
+	print(io, "Hit($(first(hit.span)):$(last(hit.span)))")
 end
 
 function Base.show(io::IO, cql::CQL)
@@ -324,22 +420,6 @@ function Base.show(io::IO, ::MIME"text/plain", conc::Concordance)
 		line !== last(lines) && println(io)
 	end
 end
-
-# ---- CQL dispatch ----
-
-query(corpus::Corpus, cql::CQL; kwargs...) = query(corpus, cql.query; kwargs...)
-Base.count(corpus::Corpus, cql::CQL; kwargs...) = count(corpus, cql.query; kwargs...)
-concordance(corpus::Corpus, cql::CQL; kwargs...) = concordance(corpus, cql.query; kwargs...)
-frequency(corpus::Corpus, cql::CQL; kwargs...) = frequency(corpus, cql.query; kwargs...)
-collocates(corpus::Corpus, cql::CQL; kwargs...) = collocates(corpus, cql.query; kwargs...)
-project(corpus::Corpus, cql::CQL, alignment::AbstractString) = project(corpus, cql.query, alignment)
-
-# ---- ProjectionResult forwarding ----
-
-texts(pr::ProjectionResult; kwargs...) = texts(pr.hits; kwargs...)
-concordance(pr::ProjectionResult; kwargs...) = concordance(pr.hits; kwargs...)
-frequency(pr::ProjectionResult; kwargs...) = frequency(pr.hits; kwargs...)
-collocates(pr::ProjectionResult; kwargs...) = collocates(pr.hits; kwargs...)
 
 function Base.show(io::IO, pr::ProjectionResult)
 	print(io, "ProjectionResult($(pr.projected) projected, $(pr.unmapped) unmapped, $(pr.no_alignment) unaligned)")

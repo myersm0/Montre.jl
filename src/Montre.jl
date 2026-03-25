@@ -23,7 +23,7 @@ export token_count, document_count, sentence_count, component_count,
 	vocabulary, annotation, annotations, span_text
 
 include("query.jl")
-export query, texts, concordance, frequency, collocates, project
+export query, column, captures, concordance, frequency, collocates, project
 
 include("tables.jl")
 

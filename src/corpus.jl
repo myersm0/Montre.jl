@@ -1,19 +1,3 @@
-"""
-	Montre.open(path::AbstractString) -> Corpus
-	Montre.open(f::Function, path::AbstractString)
-
-Open a montre corpus at `path`. The `do`-block form closes the corpus automatically.
-
-```julia
-corpus = Montre.open("./my-corpus")
-# ...
-close(corpus)
-
-Montre.open("./my-corpus") do corpus
-    query(corpus, cql"[pos='NOUN']")
-end
-```
-"""
 function open(path::AbstractString)
 	pointer = corpus_open(path)
 	return Corpus(pointer)
@@ -58,19 +42,6 @@ function _resolve_document(corpus::Corpus, document::AbstractString; component::
 	return doc_idx
 end
 
-"""
-	token_count(corpus; component=nothing, document=nothing) -> Int
-
-Token count for the corpus, a component, or a single document.
-When both `component` and `document` are given, resolves the document within the component.
-
-```julia
-token_count(corpus)
-token_count(corpus; component="maupassant-fr")
-token_count(corpus; document="allouma.conllu")
-token_count(corpus; component="maupassant-fr", document="allouma.conllu")
-```
-"""
 function token_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing, document::Union{AbstractString, Nothing} = nothing)
 	if document !== nothing
 		doc_idx = _resolve_document(corpus, document; component)
@@ -91,11 +62,6 @@ function _component_token_range(corpus::Corpus, component_name::AbstractString)
 	return first(first_doc):last(last_doc)
 end
 
-"""
-	document_count(corpus; component=nothing) -> Int
-
-Number of documents in the corpus or in a named component.
-"""
 function document_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing)
 	if component !== nothing
 		return length(document_range(corpus, component))
@@ -103,12 +69,6 @@ function document_count(corpus::Corpus; component::Union{AbstractString, Nothing
 	Int(corpus_document_count(corpus.pointer))
 end
 
-"""
-	sentence_count(corpus; component=nothing, document=nothing) -> Int
-
-Sentence count for the corpus, a component, or a single document.
-When both `component` and `document` are given, resolves the document within the component.
-"""
 function sentence_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing, document::Union{AbstractString, Nothing} = nothing)
 	if document !== nothing
 		doc_idx = _resolve_document(corpus, document; component)
@@ -122,40 +82,19 @@ function sentence_count(corpus::Corpus; component::Union{AbstractString, Nothing
 	something(corpus_span_count(corpus.pointer, "sentence"), 0)
 end
 
-"""
-	component_count(corpus::Corpus) -> Int
-
-Number of components. Returns 0 for single-component corpora.
-"""
 function component_count(corpus::Corpus)
 	Int(corpus_component_count(corpus.pointer))
 end
 
-"""
-	layers(corpus::Corpus) -> Vector{String}
-
-Available annotation layers, e.g. `["word", "lemma", "pos", "deprel", "feats"]`.
-"""
 function layers(corpus::Corpus)
 	n = Int(corpus_layer_count(corpus.pointer))
 	[corpus_layer_name(corpus.pointer, i) for i in 0:n - 1]
 end
 
-"""
-	features(corpus::Corpus) -> Vector{String}
-
-Decomposed morphological feature layers (those starting with `"feats."`).
-"""
 function features(corpus::Corpus)
 	filter(l -> startswith(l, "feats."), layers(corpus))
 end
 
-"""
-	documents(corpus; component=nothing) -> Vector{String}
-
-Document names in the corpus (typically source filenames).
-With `component`, returns only documents belonging to that component.
-"""
 function documents(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing)
 	if component === nothing
 		n = Int(corpus_document_count(corpus.pointer))
@@ -165,51 +104,25 @@ function documents(corpus::Corpus; component::Union{AbstractString, Nothing} = n
 	[corpus_document_name(corpus.pointer, i) for i in r]
 end
 
-"""
-	document_name(corpus::Corpus, index::Integer) -> String
-
-Document name by 0-based index.
-"""
 function document_name(corpus::Corpus, index::Integer)
 	corpus_document_name(corpus.pointer, index)
 end
 
-"""
-	document_range(corpus, component_name::AbstractString) -> UnitRange{Int}
-
-0-based document index range for a named component.
-"""
 function document_range(corpus::Corpus, component_name::AbstractString)
 	idx = _component_index(corpus, component_name)
 	corpus_component_document_range(corpus.pointer, idx)
 end
 
-"""
-	span_at(corpus, layer, index) -> UnitRange{Int}
-
-Token range for a span by layer name and 0-based index.
-"""
-function span_at(corpus::Corpus, layer::AbstractString, index::Integer)
-	result = corpus_span_at(corpus.pointer, layer, index)
+function span_at(corpus::Corpus, layer::Layer, index::Integer)
+	result = corpus_span_at(corpus.pointer, _layer_name(layer), index)
 	result === nothing && error("Montre: invalid span layer or index")
 	return result
 end
 
-"""
-	span_containing(corpus, layer, position) -> (; index, span)
-
-Find the span containing a token position. Returns a named tuple
-with the span index and its token range, or `nothing` if not found.
-"""
-function span_containing(corpus::Corpus, layer::AbstractString, position::Integer)
-	corpus_span_containing(corpus.pointer, layer, position)
+function span_containing(corpus::Corpus, layer::Layer, position::Integer)
+	corpus_span_containing(corpus.pointer, _layer_name(layer), position)
 end
 
-"""
-	components(corpus::Corpus) -> Vector{Component}
-
-Named subcorpora (languages, editions, etc.) in the corpus.
-"""
 function components(corpus::Corpus)
 	n = Int(corpus_component_count(corpus.pointer))
 	[
@@ -222,83 +135,38 @@ function components(corpus::Corpus)
 	]
 end
 
-"""
-	span_layers(corpus::Corpus) -> Vector{String}
-
-Available span layers (e.g. `["sentence", "document", "paragraph"]`).
-"""
 function span_layers(corpus::Corpus)
 	n = Int(corpus_span_layer_count(corpus.pointer))
 	[corpus_span_layer_name(corpus.pointer, i) for i in 0:n - 1]
 end
 
-"""
-	vocabulary(corpus::Corpus, layer::AbstractString; top=nothing) -> Vector{NamedTuple}
-
-Frequency-sorted vocabulary for a layer from the inverted index.
-Returns `(; value, count)` named tuples, descending by count.
-Use `top=N` to limit to the N most frequent entries.
-
-```julia
-vocabulary(corpus, "pos")           # all POS tags with frequencies
-vocabulary(corpus, "lemma"; top=50) # top 50 lemmas
-```
-"""
-function vocabulary(corpus::Corpus, layer::AbstractString; top::Union{Integer, Nothing} = nothing)
-	values, counts = corpus_inverted_counts(corpus.pointer, layer)
+function vocabulary(corpus::Corpus, layer::Layer; top::Union{Integer, Nothing} = nothing)
+	values, counts = corpus_inverted_counts(corpus.pointer, _layer_name(layer))
 	entries = [(; value = v, count = c) for (v, c) in zip(values, counts)]
 	sort!(entries; by = e -> e.count, rev = true)
 	top === nothing ? entries : first(entries, min(top, length(entries)))
 end
 
-"""
-	annotation(corpus::Corpus, position::Integer, layer::AbstractString) -> String
-
-Value of a single annotation layer at a given token position.
-
-```julia
-annotation(corpus, 42, "pos")    # => "NOUN"
-annotation(corpus, 42, "lemma")  # => "âme"
-```
-"""
-function annotation(corpus::Corpus, position::Integer, layer::AbstractString)
-	corpus_token_annotation(corpus.pointer, position, layer)
+function annotation(corpus::Corpus, position::Integer, layer::Layer)
+	corpus_token_annotation(corpus.pointer, position, _layer_name(layer))
 end
 
-"""
-	annotations(corpus::Corpus, range::UnitRange, layer::AbstractString) -> Vector{String}
-
-Bulk annotation extraction for a contiguous position range.
-"""
-function annotations(corpus::Corpus, range::UnitRange, layer::AbstractString)
-	corpus_token_annotations(corpus.pointer, first(range), last(range) + 1, layer)
+function annotations(corpus::Corpus, range::UnitRange, layer::Layer)
+	corpus_token_annotations(corpus.pointer, first(range), last(range) + 1, _layer_name(layer))
 end
 
-"""
-	span_text(corpus, start, stop; layer="word")
-	span_text(corpus, range::UnitRange; layer="word")
-	span_text(corpus, hit::Hit; layer="word")
-
-Concatenated text of tokens in a span, joined by spaces.
-Accepts raw integer bounds (half-open), a `UnitRange`, or a `Hit`.
-"""
-function span_text(corpus::Corpus, start::Integer, stop::Integer; layer::AbstractString = "word")
-	corpus_span_text(corpus.pointer, start, stop, layer)
+function span_text(corpus::Corpus, start::Integer, stop::Integer; layer::Layer = :word)
+	corpus_span_text(corpus.pointer, start, stop, _layer_name(layer))
 end
 
-function span_text(corpus::Corpus, range::UnitRange; layer::AbstractString = "word")
+function span_text(corpus::Corpus, range::UnitRange; layer::Layer = :word)
 	span_text(corpus, first(range), last(range) + 1; layer = layer)
 end
 
-function span_text(corpus::Corpus, hit::Hit; layer::AbstractString = "word")
+function span_text(corpus::Corpus, hit::Hit; layer::Layer = :word)
 	span_text(corpus, hit.span; layer = layer)
 end
 
-"""
-	alignments(corpus::Corpus) -> Vector{Alignment}
-
-Named alignment relations between components (e.g. sentence-level translation alignments).
-"""
 function alignments(corpus::Corpus)
 	n = Int(corpus_alignment_count(corpus.pointer))
 	[
@@ -315,18 +183,6 @@ function alignments(corpus::Corpus)
 	]
 end
 
-"""
-	edges(corpus::Corpus, alignment::AbstractString) -> Vector{NamedTuple}
-
-Raw alignment edges as `(; source_document, source_sentence, target_document, target_sentence)`
-named tuples. Document and sentence indices are 0-based within their respective components.
-
-```julia
-for e in edges(corpus, "labse")
-    println(e.source_document, ":", e.source_sentence, " → ", e.target_document, ":", e.target_sentence)
-end
-```
-"""
 function edges(corpus::Corpus, alignment::AbstractString)
 	flat, n = corpus_alignment_edges(corpus.pointer, alignment)
 	[
@@ -340,19 +196,6 @@ function edges(corpus::Corpus, alignment::AbstractString)
 	]
 end
 
-"""
-	Montre.build(input_dir, output_dir; name="corpus", decompose_feats=false, strict=false)
-	Montre.build(manifest_path, output_dir; decompose_feats=false, strict=false)
-
-Build a montre corpus from CoNLL-U files. The first form builds a single-component
-corpus from a directory. The second form (when `manifest_path` ends in `.toml`)
-builds a multi-component corpus from a TOML manifest.
-
-```julia
-Montre.build("data/conllu/", "my-corpus/"; name="maupassant", decompose_feats=true)
-Montre.build("corpus.toml", "my-corpus/")
-```
-"""
 function build(input::AbstractString, output::AbstractString;
 	name::AbstractString = "corpus", decompose_feats::Bool = false, strict::Bool = false,
 )
