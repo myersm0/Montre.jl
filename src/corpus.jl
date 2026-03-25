@@ -37,6 +37,12 @@ end
 
 Base.isopen(corpus::Corpus) = corpus.pointer != C_NULL
 
+function _component_index(corpus::Corpus, name::AbstractString)
+	idx = corpus_component_index_by_name(corpus.pointer, name)
+	idx === nothing && error("Montre: component not found: $name")
+	return idx
+end
+
 function _resolve_document(corpus::Corpus, document::AbstractString; component::Union{AbstractString, Nothing} = nothing)
 	if component !== nothing
 		r = document_range(corpus, component)
@@ -71,16 +77,15 @@ function token_count(corpus::Corpus; component::Union{AbstractString, Nothing} =
 		return length(span_at(corpus, "document", doc_idx))
 	end
 	if component !== nothing
-		comps = components(corpus)
-		idx = findfirst(c -> c.name == component, comps)
-		idx === nothing && error("Montre: component not found: $component")
-		return comps[idx].token_count
+		idx = _component_index(corpus, component)
+		return something(corpus_component_token_count(corpus.pointer, idx), 0)
 	end
 	Int(corpus_token_count(corpus.pointer))
 end
 
 function _component_token_range(corpus::Corpus, component_name::AbstractString)
-	r = document_range(corpus, component_name)
+	idx = _component_index(corpus, component_name)
+	r = corpus_component_document_range(corpus.pointer, idx)
 	first_doc = span_at(corpus, "document", first(r))
 	last_doc = span_at(corpus, "document", last(r))
 	return first(first_doc):last(last_doc)
@@ -175,10 +180,8 @@ end
 0-based document index range for a named component.
 """
 function document_range(corpus::Corpus, component_name::AbstractString)
-	comps = components(corpus)
-	idx = findfirst(c -> c.name == component_name, comps)
-	idx === nothing && error("Montre: component not found: $component_name")
-	corpus_component_document_range(corpus.pointer, idx - 1)
+	idx = _component_index(corpus, component_name)
+	corpus_component_document_range(corpus.pointer, idx)
 end
 
 """
@@ -242,8 +245,8 @@ vocabulary(corpus, "lemma"; top=50) # top 50 lemmas
 ```
 """
 function vocabulary(corpus::Corpus, layer::AbstractString; top::Union{Integer, Nothing} = nothing)
-	values = corpus_inverted_values(corpus.pointer, layer)
-	entries = [(; value, count = something(corpus_inverted_count(corpus.pointer, layer, value), 0)) for value in values]
+	values, counts = corpus_inverted_counts(corpus.pointer, layer)
+	entries = [(; value = v, count = c) for (v, c) in zip(values, counts)]
 	sort!(entries; by = e -> e.count, rev = true)
 	top === nothing ? entries : first(entries, min(top, length(entries)))
 end

@@ -159,6 +159,15 @@ function corpus_component_token_count(pointer::Ptr{Nothing}, index::Integer)
 	return Int(result)
 end
 
+function corpus_component_index_by_name(pointer::Ptr{Nothing}, name::AbstractString)
+	result = ccall(
+		(:montre_corpus_component_index_by_name, libmontre), Int32,
+		(Ptr{Nothing}, Cstring), pointer, name,
+	)
+	result < 0 && return nothing
+	return Int(result)
+end
+
 # ---- inverted index ----
 
 function corpus_inverted_values(pointer::Ptr{Nothing}, layer::AbstractString)
@@ -177,6 +186,22 @@ function corpus_inverted_count(pointer::Ptr{Nothing}, layer::AbstractString, val
 	)
 	result < 0 && return nothing
 	return Int(result)
+end
+
+function corpus_inverted_counts(pointer::Ptr{Nothing}, layer::AbstractString)
+	out_len = Ref{UInt64}(0)
+	out_values = Ref{Ptr{Ptr{Cchar}}}(C_NULL)
+	out_counts = Ref{Ptr{UInt64}}(C_NULL)
+	ok = ccall(
+		(:montre_corpus_inverted_counts, libmontre), Int32,
+		(Ptr{Nothing}, Cstring, Ptr{Ptr{Ptr{Cchar}}}, Ptr{Ptr{UInt64}}, Ptr{UInt64}),
+		pointer, layer, out_values, out_counts, out_len,
+	)
+	ok == 0 && return (String[], Int[])
+	n = Int(out_len[])
+	values = take_string_array(out_values[], n)
+	counts = take_u64_array(out_counts[], n)
+	return (values, counts)
 end
 
 # ---- token access ----
