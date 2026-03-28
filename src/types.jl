@@ -46,7 +46,7 @@ end
 CaptureStore() = CaptureStore(String[], Dict{String, Vector{Int}}(), Dict{String, Vector{Int}}())
 Base.isempty(store::CaptureStore) = isempty(store.names)
 
-const _conllu_layers = ["word", "lemma", "pos", "xpos", "feats", "head", "deprel"]
+const _conllu_layers = ["word", "lemma", "pos", "xpos", "feats", "deprel"]
 
 function _corpus_conllu_layers(corpus::Corpus)
 	available = Set(layers(corpus))
