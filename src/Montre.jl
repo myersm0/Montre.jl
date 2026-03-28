@@ -13,8 +13,9 @@ end
 using UniversalDependencies
 
 include("types.jl")
-export Corpus, HitList, Component, Alignment, ProjectionResult,
-	Concordance, ConcordanceLine, CQL, @cql_str
+export Corpus, HitList, Hit, Component, Alignment,
+	Concordance, ConcordanceLine, CQL, @cql_str,
+	Join, First, Last, Only, Collect, Width, Document, Sentence, Capture
 
 include("ffi.jl")
 
@@ -25,7 +26,10 @@ export token_count, document_count, sentence_count, component_count,
 	vocabulary, annotation, annotations, span_text
 
 include("query.jl")
-export query, tokens, column, captures, concordance, frequency, collocates, project
+export query, tokens, captures, concordance, collocates, project, is_projection
+
+include("select.jl")
+export select, frequency, Selected
 
 include("tables.jl")
 

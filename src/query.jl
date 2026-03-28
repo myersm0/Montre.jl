@@ -19,7 +19,7 @@ function _build_capture_store(pointer::Ptr{Nothing}, n::Int)
 	CaptureStore(names, starts, ends)
 end
 
-function _materialize_hitlist(pointer::Ptr{Nothing}, corpus::Corpus)
+function _materialize_hitlist(pointer::Ptr{Nothing}, corpus::Corpus; kwargs...)
 	hitlist_populate_context(pointer, corpus.pointer)
 	starts = hitlist_starts(pointer)
 	ends = hitlist_ends(pointer)
@@ -27,7 +27,10 @@ function _materialize_hitlist(pointer::Ptr{Nothing}, corpus::Corpus)
 	sentence_indices = hitlist_sentence_indices(pointer)
 	capture_store = _build_capture_store(pointer, length(starts))
 	show_layers = _corpus_conllu_layers(corpus)
-	HitList(pointer, corpus, starts, ends, document_indices, sentence_indices, capture_store, show_layers)
+	HitList(
+		pointer, corpus, starts, ends, document_indices, sentence_indices,
+		capture_store, show_layers; kwargs...,
+	)
 end
 
 # ---- query ----
@@ -93,37 +96,6 @@ function _build_nodes(hitlist::HitList, i::Integer)
 	]
 end
 
-function _capture_margin_labels(hitlist::HitList, i::Integer)
-	store = hitlist.capture_store
-	isempty(store) && return Dict{Int, String}()
-	hit_start = hitlist.starts[i]
-	labels = Dict{Int, String}()
-	for name in store.names
-		cs = store.starts[name][i]
-		ce = store.ends[name][i]
-		for pos in cs:ce - 1
-			local_idx = pos - hit_start + 1
-			existing = get(labels, local_idx, "")
-			labels[local_idx] = existing == "" ? name : existing * "," * name
-		end
-	end
-	return labels
-end
-
-function _capture_highlights(hitlist::HitList, i::Integer)
-	store = hitlist.capture_store
-	isempty(store) && return UnitRange{Int}[]
-	hit_start = hitlist.starts[i]
-	[
-		let
-			local_start = store.starts[name][i] - hit_start + 1
-			local_end = store.ends[name][i] - hit_start
-			local_start:local_end
-		end
-		for name in store.names
-	]
-end
-
 function tokens(hitlist::HitList, i::Integer)
 	1 <= i <= length(hitlist) || throw(BoundsError(hitlist, i))
 	_build_nodes(hitlist, i)
@@ -131,38 +103,6 @@ end
 
 function tokens(hitlist::HitList)
 	[_build_nodes(hitlist, i) for i in 1:length(hitlist)]
-end
-
-# ---- column extraction ----
-
-function column(hitlist::HitList, layer::Layer)
-	layer_str = _layer_name(layer)
-	cached = get(hitlist.column_cache, layer_str, nothing)
-	cached !== nothing && return cached
-
-	n = length(hitlist)
-	result = Vector{Vector{String}}(undef, n)
-	for i in 1:n
-		result[i] = corpus_token_annotations(hitlist.corpus.pointer, hitlist.starts[i], hitlist.ends[i], layer_str)
-	end
-	hitlist.column_cache[layer_str] = result
-	return result
-end
-
-function column(hitlist::HitList, capture_name::AbstractString, layer::Layer)
-	store = hitlist.capture_store
-	haskey(store.starts, capture_name) || throw(KeyError(capture_name))
-
-	layer_str = _layer_name(layer)
-	cap_starts = store.starts[capture_name]
-	cap_ends = store.ends[capture_name]
-
-	n = length(hitlist)
-	result = Vector{Vector{String}}(undef, n)
-	for i in 1:n
-		result[i] = corpus_token_annotations(hitlist.corpus.pointer, cap_starts[i], cap_ends[i], layer_str)
-	end
-	return result
 end
 
 # ---- captures at hitlist level ----
@@ -181,8 +121,12 @@ end
 
 function project(corpus::Corpus, hitlist::HitList, alignment::AbstractString)
 	raw = project(corpus.pointer, hitlist.pointer, alignment)
-	projected = _materialize_hitlist(raw.pointer, corpus)
-	ProjectionResult(projected, raw.unmapped, raw.no_alignment, raw.projected)
+	_materialize_hitlist(
+		raw.pointer, corpus;
+		projected = raw.projected,
+		unmapped = raw.unmapped,
+		no_alignment = raw.no_alignment,
+	)
 end
 
 project(hitlist::HitList, alignment::AbstractString) = project(hitlist.corpus, hitlist, alignment)
@@ -234,23 +178,17 @@ end
 
 concordance(hitlist::HitList; kwargs...) = concordance(hitlist.corpus, hitlist; kwargs...)
 
-# ---- frequency ----
+# ---- frequency (legacy Layer-based) ----
 
 function frequency(corpus::Corpus, hitlist::HitList; by::Layer = :word)
-	layer_data = column(hitlist, by)
-	counts = Dict{String, Int}()
-	for vals in layer_data
-		key = join(vals, " ")
-		counts[key] = get(counts, key, 0) + 1
-	end
-	sort!([(; value, count) for (value, count) in counts]; by = last, rev = true)
+	frequency(hitlist, Join(by))
 end
 
 function frequency(corpus::Corpus, cql::AbstractString; by::Layer = :word, component::Union{AbstractString, Nothing} = nothing)
 	frequency(corpus, query(corpus, cql; component); by = by)
 end
 
-frequency(hitlist::HitList; kwargs...) = frequency(hitlist.corpus, hitlist; kwargs...)
+frequency(hitlist::HitList; by::Layer = :word) = frequency(hitlist.corpus, hitlist; by = by)
 
 # ---- collocates ----
 
@@ -296,19 +234,41 @@ frequency(corpus::Corpus, cql::CQL; kwargs...) = frequency(corpus, cql.query; kw
 collocates(corpus::Corpus, cql::CQL; kwargs...) = collocates(corpus, cql.query; kwargs...)
 project(corpus::Corpus, cql::CQL, alignment::AbstractString) = project(corpus, cql.query, alignment)
 
-# ---- ProjectionResult forwarding ----
-
-tokens(pr::ProjectionResult, args...) = tokens(pr.hits, args...)
-column(pr::ProjectionResult, args...) = column(pr.hits, args...)
-captures(pr::ProjectionResult, args...) = captures(pr.hits, args...)
-concordance(pr::ProjectionResult; kwargs...) = concordance(pr.hits; kwargs...)
-frequency(pr::ProjectionResult; kwargs...) = frequency(pr.hits; kwargs...)
-collocates(pr::ProjectionResult; kwargs...) = collocates(pr.hits; kwargs...)
-
 # ---- display ----
 
+function _capture_margin_labels(hitlist::HitList, i::Integer)
+	store = hitlist.capture_store
+	isempty(store) && return Dict{Int, String}()
+	hit_start = hitlist.starts[i]
+	labels = Dict{Int, String}()
+	for name in store.names
+		cs = store.starts[name][i]
+		ce = store.ends[name][i]
+		for pos in cs:ce - 1
+			local_idx = pos - hit_start + 1
+			existing = get(labels, local_idx, "")
+			labels[local_idx] = existing == "" ? name : existing * "," * name
+		end
+	end
+	return labels
+end
+
+function _capture_highlights(hitlist::HitList, i::Integer)
+	store = hitlist.capture_store
+	isempty(store) && return UnitRange{Int}[]
+	hit_start = hitlist.starts[i]
+	[
+		let
+			local_start = store.starts[name][i] - hit_start + 1
+			local_end = store.ends[name][i] - hit_start
+			local_start:local_end
+		end
+		for name in store.names
+	]
+end
+
 function _render_hit(io::IO, hitlist::HitList, i::Integer)
-	doc_name = something(corpus_document_name(hitlist.corpus.pointer, hitlist.document_indices[i]), "?")
+	doc_name = _document_name_cached(hitlist, i)
 	printstyled(io, "Hit $i", bold = true)
 	printstyled(io, " ($doc_name)", color = :light_black)
 	println(io)
@@ -328,6 +288,9 @@ function Base.show(io::IO, ::MIME"text/plain", hitlist::HitList)
 	n_docs = length(unique(hitlist.document_indices))
 	printstyled(io, "$(n) hits", bold = true)
 	print(io, " across $(n_docs) documents")
+	if is_projection(hitlist)
+		print(io, " ($(hitlist.projected) projected, $(hitlist.unmapped) unmapped, $(hitlist.no_alignment) unaligned)")
+	end
 
 	n == 0 && return
 
@@ -347,6 +310,16 @@ end
 
 function Base.show(io::IO, hitlist::HitList)
 	print(io, "HitList($(length(hitlist)) hits)")
+end
+
+function Base.show(io::IO, hit::Hit)
+	print(io, "Hit($(first(hit.span)):$(last(hit.span))")
+	if !isempty(hit.captures)
+		for (name, span) in hit.captures
+			print(io, ", $name=$(first(span)):$(last(span))")
+		end
+	end
+	print(io, ")")
 end
 
 function Base.show(io::IO, cql::CQL)
@@ -399,8 +372,4 @@ function Base.show(io::IO, ::MIME"text/plain", conc::Concordance)
 		print(io, " ", rpad(right, side_width))
 		line !== last(lines) && println(io)
 	end
-end
-
-function Base.show(io::IO, pr::ProjectionResult)
-	print(io, "ProjectionResult($(pr.projected) projected, $(pr.unmapped) unmapped, $(pr.no_alignment) unaligned)")
 end
