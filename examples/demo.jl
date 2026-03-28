@@ -8,6 +8,7 @@
 # your data.
 
 using Montre
+using UniversalDependencies
 
 corpus_path = expanduser("~/path/to/your-corpus")
 corpus = Montre.open(corpus_path)
@@ -39,8 +40,8 @@ component_count(corpus)
 
 # ── vocabulary ──
 
-vocabulary(corpus, "pos")
-vocabulary(corpus, "lemma"; top = 20)
+vocabulary(corpus, :pos)
+vocabulary(corpus, :lemma; top = 20)
 
 # ── basic querying ──
 
@@ -48,14 +49,14 @@ hits = query(corpus, cql"[pos='NOUN']")
 concordance(hits; limit = 10)
 
 pairs = query(corpus, cql"[pos='ADJ'] [pos='NOUN']")
-frequency(pairs; by = "word")
+frequency(pairs; by = :word)
 
 # ── component-filtered queries ──
 
-fr_nouns = frequency(corpus, cql"[pos='NOUN']"; by = "lemma", component = "maupassant-fr")
+fr_nouns = frequency(corpus, cql"[pos='NOUN']"; by = :lemma, component = "maupassant-fr")
 first(fr_nouns, 20)
 
-en_nouns = frequency(corpus, cql"[pos='NOUN']"; by = "lemma", component = "maupassant-en")
+en_nouns = frequency(corpus, cql"[pos='NOUN']"; by = :lemma, component = "maupassant-en")
 first(en_nouns, 20)
 
 count(corpus, cql"[pos='VERB']"; component = "maupassant-fr")
@@ -66,20 +67,34 @@ ame = query(corpus, cql"[lemma='âme' & pos='NOUN']"; component = "maupassant-fr
 concordance(ame; limit = 10)
 
 colors = query(corpus, cql"[lemma=/^(noir|blanc|rouge|bleu|vert)$/ & pos='ADJ']"; component = "maupassant-fr")
-frequency(colors; by = "lemma")
+frequency(colors; by = :lemma)
 concordance(colors; limit = 10)
 
 # ── labeled captures and global constraints ──
 
 repeated = query(corpus, CQL("a:[pos='NOUN'] []{0,10} b:[pos='NOUN'] :: a.lemma = b.lemma"); component = "maupassant-fr")
-hit = repeated[1]
-hit["a"]               # span of the first noun
-hit["b"]               # span of the repeated noun
-haskey(hit, "a")       # true
-keys(hit)              # ["a", "b"]
 
-span_text(corpus, hit["a"]; layer = "lemma")
-span_text(corpus, hit["b"]; layer = "lemma")
+# inspect a single hit as UD nodes
+nodes = tokens(repeated, 42)
+UD.form(nodes[1])
+UD.upos(nodes[1])
+UD.feats(nodes[1])
+
+# render a hit with dependency arcs
+render(ArcStyle(), nodes)
+
+# render as a CoNLL-U table
+render(TableStyle(), nodes)
+
+# bulk column extraction
+column(repeated, :lemma)
+column(repeated, "a", :lemma)
+frequency(repeated; by = :lemma)
+concordance(repeated; limit = 10)
+
+# captures
+captures(repeated)
+captures(repeated, "a")
 
 # ── alignment projection ──
 
@@ -89,7 +104,7 @@ result.projected
 result.no_alignment
 result.unmapped
 
-texts(result)
+column(result, :word)
 concordance(result; limit = 10)
 
 # ── alignment edges ──
@@ -99,25 +114,21 @@ first(alignment_data, 5)
 
 # ── collocates ──
 
-collocates(ame; window = 5, layer = "lemma")
+collocates(ame; window = 5, layer = :lemma)
 
-positional = collocates(ame; window = 5, layer = "lemma", positional = true)
+positional = collocates(ame; window = 5, layer = :lemma, positional = true)
 first(positional, 30)
 
-# ── bulk annotation access ──
+# ── per-token annotation via UD nodes ──
 
-hit = ame[1]
-annotations(corpus, hit.span, "pos")
-annotations(corpus, hit.span, "lemma")
+nodes = tokens(ame, 1)
+[UD.upos(n) for n in nodes]
+[UD.lemma(n) for n in nodes]
+UD.feats(nodes[1])
 
 # ── DataFrames integration ──
 
 using DataFrames
-
-hits = query(corpus, cql"[pos='ADJ'] [pos='NOUN']")
-df = DataFrame(hits)
-df.text = texts(hits)
-df.lemma = texts(hits; layer = "lemma")
 
 fr_conc = DataFrame(concordance(ame; limit = 20))
 en_conc = DataFrame(concordance(result; limit = 20))

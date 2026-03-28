@@ -163,10 +163,6 @@ function span_text(corpus::Corpus, range::UnitRange; layer::Layer = :word)
 	span_text(corpus, first(range), last(range) + 1; layer = layer)
 end
 
-function span_text(corpus::Corpus, hit::Hit; layer::Layer = :word)
-	span_text(corpus, hit.span; layer = layer)
-end
-
 function alignments(corpus::Corpus)
 	n = Int(corpus_alignment_count(corpus.pointer))
 	[

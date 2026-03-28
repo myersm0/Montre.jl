@@ -26,7 +26,8 @@ function _materialize_hitlist(pointer::Ptr{Nothing}, corpus::Corpus)
 	document_indices = hitlist_document_indices(pointer)
 	sentence_indices = hitlist_sentence_indices(pointer)
 	capture_store = _build_capture_store(pointer, length(starts))
-	HitList(pointer, corpus, starts, ends, document_indices, sentence_indices, capture_store)
+	show_layers = _corpus_conllu_layers(corpus)
+	HitList(pointer, corpus, starts, ends, document_indices, sentence_indices, capture_store, show_layers)
 end
 
 # ---- query ----
@@ -46,6 +47,90 @@ function Base.count(corpus::Corpus, cql::AbstractString; component::Union{Abstra
 	else
 		Int(query_count_in_component(corpus.pointer, cql, component))
 	end
+end
+
+# ---- token construction ----
+
+function _fetch_layer(corpus_ptr::Ptr{Nothing}, start::Int, stop::Int, layer::String)
+	vals = corpus_token_annotations(corpus_ptr, start, stop, layer)
+	isempty(vals) ? nothing : vals
+end
+
+function _build_nodes(hitlist::HitList, i::Integer)
+	corpus = hitlist.corpus
+	hit_start = hitlist.starts[i]
+	hit_end = hitlist.ends[i]
+	n = hit_end - hit_start
+	n == 0 && return UD.Node[]
+
+	ptr = corpus.pointer
+	available = Set(hitlist.show_layers)
+
+	words = "word" in available ? _fetch_layer(ptr, hit_start, hit_end, "word") : nothing
+	lemmas = "lemma" in available ? _fetch_layer(ptr, hit_start, hit_end, "lemma") : nothing
+	pos_tags = "pos" in available ? _fetch_layer(ptr, hit_start, hit_end, "pos") : nothing
+	xpos_tags = "xpos" in available ? _fetch_layer(ptr, hit_start, hit_end, "xpos") : nothing
+	feats_strs = "feats" in available ? _fetch_layer(ptr, hit_start, hit_end, "feats") : nothing
+	heads = "head" in available ? _fetch_layer(ptr, hit_start, hit_end, "head") : nothing
+	deprels = "deprel" in available ? _fetch_layer(ptr, hit_start, hit_end, "deprel") : nothing
+
+	_val(v, j) = v !== nothing && j <= length(v) ? v[j] : "_"
+
+	[
+		UD.Node(
+			id = j,
+			form = _val(words, j),
+			lemma = _val(lemmas, j),
+			upos = _val(pos_tags, j),
+			xpos = _val(xpos_tags, j),
+			feats = parse(UD.Features, _val(feats_strs, j)),
+			head = let s = _val(heads, j)
+				something(tryparse(Int, s), 0)
+			end,
+			deprel = _val(deprels, j),
+		)
+		for j in 1:n
+	]
+end
+
+function _capture_margin_labels(hitlist::HitList, i::Integer)
+	store = hitlist.capture_store
+	isempty(store) && return Dict{Int, String}()
+	hit_start = hitlist.starts[i]
+	labels = Dict{Int, String}()
+	for name in store.names
+		cs = store.starts[name][i]
+		ce = store.ends[name][i]
+		for pos in cs:ce - 1
+			local_idx = pos - hit_start + 1
+			existing = get(labels, local_idx, "")
+			labels[local_idx] = existing == "" ? name : existing * "," * name
+		end
+	end
+	return labels
+end
+
+function _capture_highlights(hitlist::HitList, i::Integer)
+	store = hitlist.capture_store
+	isempty(store) && return UnitRange{Int}[]
+	hit_start = hitlist.starts[i]
+	[
+		let
+			local_start = store.starts[name][i] - hit_start + 1
+			local_end = store.ends[name][i] - hit_start
+			local_start:local_end
+		end
+		for name in store.names
+	]
+end
+
+function tokens(hitlist::HitList, i::Integer)
+	1 <= i <= length(hitlist) || throw(BoundsError(hitlist, i))
+	_build_nodes(hitlist, i)
+end
+
+function tokens(hitlist::HitList)
+	[_build_nodes(hitlist, i) for i in 1:length(hitlist)]
 end
 
 # ---- column extraction ----
@@ -154,8 +239,8 @@ concordance(hitlist::HitList; kwargs...) = concordance(hitlist.corpus, hitlist; 
 function frequency(corpus::Corpus, hitlist::HitList; by::Layer = :word)
 	layer_data = column(hitlist, by)
 	counts = Dict{String, Int}()
-	for tokens in layer_data
-		key = join(tokens, " ")
+	for vals in layer_data
+		key = join(vals, " ")
 		counts[key] = get(counts, key, 0) + 1
 	end
 	sort!([(; value, count) for (value, count) in counts]; by = last, rev = true)
@@ -213,144 +298,50 @@ project(corpus::Corpus, cql::CQL, alignment::AbstractString) = project(corpus, c
 
 # ---- ProjectionResult forwarding ----
 
+tokens(pr::ProjectionResult, args...) = tokens(pr.hits, args...)
 column(pr::ProjectionResult, args...) = column(pr.hits, args...)
 captures(pr::ProjectionResult, args...) = captures(pr.hits, args...)
 concordance(pr::ProjectionResult; kwargs...) = concordance(pr.hits; kwargs...)
 frequency(pr::ProjectionResult; kwargs...) = frequency(pr.hits; kwargs...)
 collocates(pr::ProjectionResult; kwargs...) = collocates(pr.hits; kwargs...)
 
-# ---- display helpers ----
+# ---- display ----
 
-const _conllu_layers = ["word", "lemma", "pos", "xpos", "feats", "head", "deprel"]
-
-function _corpus_conllu_layers(corpus::Corpus)
-	available = Set(layers(corpus))
-	filter(l -> l in available, _conllu_layers)
-end
-
-function _show_hit(io::IO, corpus::Corpus, hit_index::Int, hit_start::Int, hit_end::Int, doc_idx::Int, capture_store::CaptureStore; show_layers::Vector{String})
-	doc_name = something(corpus_document_name(corpus.pointer, doc_idx), "?")
-	sent = corpus_span_containing(corpus.pointer, "sentence", hit_start)
-
-	print(io, "\e[1;34mHit $(hit_index)\e[0m")
-	if sent !== nothing
-		sent_span = sent.span
-		sent_start = first(sent_span)
-		sent_end = last(sent_span) + 1
-
-		# sent_id = document-sentence_index_within_doc
-		doc_span_result = corpus_span_containing(corpus.pointer, "document", hit_start)
-		if doc_span_result !== nothing
-			doc_start = first(doc_span_result.span)
-			local_sent = corpus_span_containing(corpus.pointer, "sentence", hit_start)
-			if local_sent !== nothing
-				first_sent = corpus_span_containing(corpus.pointer, "sentence", doc_start)
-				sent_within_doc = if first_sent !== nothing
-					local_sent.index - first_sent.index + 1
-				else
-					local_sent.index + 1
-				end
-				println(io)
-				print(io, "\e[2m# sent_id = $(doc_name)-$(sent_within_doc)\e[0m")
-			end
-		end
-
-		# text line with match bolded
-		pre = corpus_span_text(corpus.pointer, sent_start, hit_start, "word")
-		matched = corpus_span_text(corpus.pointer, hit_start, hit_end, "word")
-		post = corpus_span_text(corpus.pointer, hit_end, sent_end, "word")
-
-		println(io)
-		print(io, "\e[2m# text = \e[0m")
-		pre !== nothing && length(pre) > 0 && print(io, "\e[2m", pre, " \e[0m")
-		print(io, "\e[1m", something(matched, ""), "\e[0m")
-		post !== nothing && length(post) > 0 && print(io, "\e[2m ", post, "\e[0m")
-	else
-		print(io, " \e[2m($(doc_name))\e[0m")
-	end
-
-	# token rows for matched span
-	n_tokens = hit_end - hit_start
-	n_tokens == 0 && return
-
-	# figure out which capture labels apply to which positions
-	capture_labels = Dict{Int, Vector{String}}()
-	if !isempty(capture_store)
-		for name in capture_store.names
-			cap_start = capture_store.starts[name][hit_index]
-			cap_end = capture_store.ends[name][hit_index]
-			for pos in cap_start:cap_end - 1
-				labels = get!(capture_labels, pos, String[])
-				push!(labels, name)
-			end
-		end
-	end
-
-	# get sentence start for computing local token IDs
-	local_id_offset = if sent !== nothing
-		first(sent.span)
-	else
-		hit_start
-	end
-
-	# collect column data
-	col_values = Dict{String, Vector{String}}()
-	for layer in show_layers
-		vals = corpus_token_annotations(corpus.pointer, hit_start, hit_end, layer)
-		col_values[layer] = isempty(vals) ? fill("_", n_tokens) : vals
-	end
-
-	# compute column widths
-	id_strings = [string(hit_start - local_id_offset + i) for i in 1:n_tokens]
-	id_width = maximum(length, id_strings)
-	col_widths = Dict(layer => max(length(layer), maximum(length, get(col_values, layer, ["_"]))) for layer in show_layers)
-
+function _render_hit(io::IO, hitlist::HitList, i::Integer)
+	doc_name = something(corpus_document_name(hitlist.corpus.pointer, hitlist.document_indices[i]), "?")
+	printstyled(io, "Hit $i", bold = true)
+	printstyled(io, " ($doc_name)", color = :light_black)
 	println(io)
-	for j in 1:n_tokens
-		global_pos = hit_start + j - 1
 
-		# capture label annotation in margin
-		if haskey(capture_labels, global_pos)
-			label_str = join(capture_labels[global_pos], ",")
-			print(io, "\e[33m", lpad(label_str, 3), "\e[0m ")
-		else
-			print(io, "    ")
-		end
+	nodes = _build_nodes(hitlist, i)
+	margin_labels = _capture_margin_labels(hitlist, i)
+	highlights = _capture_highlights(hitlist, i)
 
-		print(io, lpad(id_strings[j], id_width), "\t")
-		for (k, layer) in enumerate(show_layers)
-			val = col_values[layer][j]
-			print(io, val)
-			k < length(show_layers) && print(io, "\t")
-		end
-		j < n_tokens && println(io)
-	end
+	kw = Dict{Symbol, Any}()
+	isempty(margin_labels) || (kw[:margin_labels] = margin_labels)
+	isempty(highlights) || (kw[:highlights] = highlights)
+	render(TableStyle(), io, nodes; kw...)
 end
 
 function Base.show(io::IO, ::MIME"text/plain", hitlist::HitList)
 	n = length(hitlist)
 	n_docs = length(unique(hitlist.document_indices))
-	print(io, "\e[1m$(n) hits\e[0m across $(n_docs) documents")
+	printstyled(io, "$(n) hits", bold = true)
+	print(io, " across $(n_docs) documents")
 
 	n == 0 && return
 
-	show_layers = _corpus_conllu_layers(hitlist.corpus)
 	display_count = min(n, 5)
-
 	for i in 1:display_count
 		println(io)
 		println(io)
-		_show_hit(
-			io, hitlist.corpus, i,
-			hitlist.starts[i], hitlist.ends[i], hitlist.document_indices[i],
-			hitlist.capture_store;
-			show_layers = show_layers,
-		)
+		_render_hit(io, hitlist, i)
 	end
 
 	if n > display_count
 		println(io)
-		print(io, "\n\e[2m… $(n - display_count) more hits\e[0m")
+		println(io)
+		printstyled(io, "⋮ $(n - display_count) more hits", color = :light_black)
 	end
 end
 
@@ -358,25 +349,14 @@ function Base.show(io::IO, hitlist::HitList)
 	print(io, "HitList($(length(hitlist)) hits)")
 end
 
-function Base.show(io::IO, ::MIME"text/plain", hit::Hit)
-	print(io, "Hit($(first(hit.span)):$(last(hit.span))")
-	if !isempty(hit.captures)
-		print(io, ", ")
-		join(io, ("$(p.first)=$(first(p.second)):$(last(p.second))" for p in hit.captures), ", ")
-	end
-	print(io, ")")
-end
-
-function Base.show(io::IO, hit::Hit)
-	print(io, "Hit($(first(hit.span)):$(last(hit.span)))")
-end
-
 function Base.show(io::IO, cql::CQL)
 	print(io, "cql\"", replace(cql.query, "\"" => "'"), "\"")
 end
 
 function Base.show(io::IO, line::ConcordanceLine)
-	print(io, lpad(line.left, 30), "  ", "\e[1m", line.match_text, "\e[0m", "  ", line.right)
+	print(io, lpad(line.left, 30), "  ")
+	printstyled(io, line.match_text, bold = true)
+	print(io, "  ", line.right)
 end
 
 function _truncate(s::AbstractString, width::Int)
@@ -386,7 +366,7 @@ function _truncate(s::AbstractString, width::Int)
 	for (i, c) in enumerate(chars)
 		w += textwidth(c)
 		if w > width - 1
-			return String(chars[1:i-1]) * "…"
+			return String(chars[1:i - 1]) * "…"
 		end
 	end
 	return s
@@ -413,10 +393,10 @@ function Base.show(io::IO, ::MIME"text/plain", conc::Concordance)
 		match = _truncate(line.match_text, match_width)
 		right = _truncate(line.right, side_width)
 
-		print(io, "\e[3m", rpad(doc, doc_width), "\e[0m")
-		print(io, " ", lpad(left, side_width))
-		print(io, " \e[1m", match, "\e[0m ")
-		print(io, rpad(right, side_width))
+		printstyled(io, rpad(doc, doc_width), color = :light_black)
+		print(io, " ", lpad(left, side_width), " ")
+		printstyled(io, match, bold = true)
+		print(io, " ", rpad(right, side_width))
 		line !== last(lines) && println(io)
 	end
 end
