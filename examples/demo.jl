@@ -9,8 +9,9 @@
 
 using Montre
 using UniversalDependencies
+using LazyArtifacts
 
-corpus_path = expanduser("~/path/to/your-corpus")
+corpus_path = artifact"maupassant_corpus"
 corpus = Montre.open(corpus_path)
 
 # ── corpus overview ──
