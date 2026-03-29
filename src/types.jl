@@ -91,7 +91,6 @@ mutable struct HitList <: AbstractVector{Hit}
 	sentence_indices::Vector{Int}
 	capture_store::CaptureStore
 	show_layers::Vector{String}
-	column_cache::Dict{String, Vector{Vector{String}}}
 	projected::Union{Int, Nothing}
 	unmapped::Union{Int, Nothing}
 	no_alignment::Union{Int, Nothing}
@@ -105,7 +104,6 @@ mutable struct HitList <: AbstractVector{Hit}
 			pointer, corpus, starts, ends,
 			document_indices, sentence_indices,
 			capture_store, show_layers,
-			Dict{String, Vector{Vector{String}}}(),
 			projected, unmapped, no_alignment,
 		)
 		finalizer(hitlist) do h
@@ -143,6 +141,56 @@ end
 
 is_projection(hitlist::HitList) = hitlist.projected !== nothing
 
+# ---- HitRow (accessor for lambda specs in extract) ----
+
+const _structural_fields = Set(["document", "width", "span", "start", "stop", "sentence_index"])
+
+struct HitRow
+	corpus::Corpus
+	hit_start::Int
+	hit_end::Int
+	document::String
+	sentence_index::Int
+	capture_starts::Dict{String, Int}
+	capture_ends::Dict{String, Int}
+end
+
+function HitRow(hitlist::HitList, i::Int)
+	store = hitlist.capture_store
+	cap_starts = Dict{String, Int}()
+	cap_ends = Dict{String, Int}()
+	for name in store.names
+		cap_starts[name] = store.starts[name][i]
+		cap_ends[name] = store.ends[name][i]
+	end
+	HitRow(
+		hitlist.corpus,
+		hitlist.starts[i], hitlist.ends[i],
+		_document_name_cached(hitlist, i),
+		hitlist.sentence_indices[i],
+		cap_starts, cap_ends,
+	)
+end
+
+function Base.getindex(row::HitRow, layer::Layer)
+	name = _layer_name(layer)
+	name == "document" && return row.document
+	name == "width" && return row.hit_end - row.hit_start
+	name == "span" && return row.hit_start:row.hit_end - 1
+	name == "start" && return row.hit_start
+	name == "stop" && return row.hit_end - 1
+	name == "sentence_index" && return row.sentence_index
+	corpus_token_annotations(row.corpus.pointer, row.hit_start, row.hit_end, name)
+end
+
+function Base.getindex(row::HitRow, capture_name::AbstractString, layer::Layer)
+	haskey(row.capture_starts, capture_name) || throw(KeyError(capture_name))
+	cs = row.capture_starts[capture_name]
+	ce = row.capture_ends[capture_name]
+	name = _layer_name(layer)
+	corpus_token_annotations(row.corpus.pointer, cs, ce, name)
+end
+
 # ---- Concordance ----
 
 struct ConcordanceLine
@@ -174,48 +222,3 @@ end
 macro cql_str(s)
 	:(CQL($s))
 end
-
-# ---- Reducers ----
-
-abstract type Reducer end
-
-struct Join <: Reducer
-	layer::String
-	sep::String
-end
-Join(layer::Layer; sep::String = " ") = Join(_layer_name(layer), sep)
-
-struct First <: Reducer
-	layer::String
-end
-First(layer::Layer) = First(_layer_name(layer))
-
-struct Last <: Reducer
-	layer::String
-end
-Last(layer::Layer) = Last(_layer_name(layer))
-
-struct Only <: Reducer
-	layer::String
-end
-Only(layer::Layer) = Only(_layer_name(layer))
-
-struct Collect <: Reducer
-	layer::String
-end
-Collect(layer::Layer) = Collect(_layer_name(layer))
-
-struct Width <: Reducer end
-
-struct Document <: Reducer end
-
-struct Sentence <: Reducer end
-
-# ---- Capture-scoped reducer ----
-
-struct Capture <: Reducer
-	name::String
-	inner::Reducer
-end
-
-Capture(name::Layer, inner::Reducer) = Capture(_layer_name(name), inner)

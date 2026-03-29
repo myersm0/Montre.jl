@@ -178,18 +178,6 @@ end
 
 concordance(hitlist::HitList; kwargs...) = concordance(hitlist.corpus, hitlist; kwargs...)
 
-# ---- frequency (legacy Layer-based) ----
-
-function frequency(corpus::Corpus, hitlist::HitList; by::Layer = :word)
-	frequency(hitlist, Join(by))
-end
-
-function frequency(corpus::Corpus, cql::AbstractString; by::Layer = :word, component::Union{AbstractString, Nothing} = nothing)
-	frequency(corpus, query(corpus, cql; component); by = by)
-end
-
-frequency(hitlist::HitList; by::Layer = :word) = frequency(hitlist.corpus, hitlist; by = by)
-
 # ---- collocates ----
 
 function collocates(
@@ -230,7 +218,7 @@ collocates(hitlist::HitList; kwargs...) = collocates(hitlist.corpus, hitlist; kw
 query(corpus::Corpus, cql::CQL; kwargs...) = query(corpus, cql.query; kwargs...)
 Base.count(corpus::Corpus, cql::CQL; kwargs...) = count(corpus, cql.query; kwargs...)
 concordance(corpus::Corpus, cql::CQL; kwargs...) = concordance(corpus, cql.query; kwargs...)
-frequency(corpus::Corpus, cql::CQL; kwargs...) = frequency(corpus, cql.query; kwargs...)
+frequency(corpus::Corpus, cql::CQL; kwargs...) = frequency(query(corpus, cql.query); kwargs...)
 collocates(corpus::Corpus, cql::CQL; kwargs...) = collocates(corpus, cql.query; kwargs...)
 project(corpus::Corpus, cql::CQL, alignment::AbstractString) = project(corpus, cql.query, alignment)
 
@@ -268,9 +256,9 @@ function _capture_highlights(hitlist::HitList, i::Integer)
 end
 
 function _render_hit(io::IO, hitlist::HitList, i::Integer)
-	doc_name = _document_name_cached(hitlist, i)
+	hit = hitlist[i]
 	printstyled(io, "Hit $i", bold = true)
-	printstyled(io, " ($doc_name)", color = :light_black)
+	printstyled(io, " ($(hit.document))", color = :light_black)
 	println(io)
 
 	nodes = _build_nodes(hitlist, i)
@@ -313,11 +301,13 @@ function Base.show(io::IO, hitlist::HitList)
 end
 
 function Base.show(io::IO, hit::Hit)
-	print(io, "Hit($(first(hit.span)):$(last(hit.span))")
+	print(io, "Hit($(hit.document)")
 	if !isempty(hit.captures)
 		for (name, span) in hit.captures
 			print(io, ", $name=$(first(span)):$(last(span))")
 		end
+	else
+		print(io, ", $(first(hit.span)):$(last(hit.span))")
 	end
 	print(io, ")")
 end
