@@ -267,8 +267,8 @@ function _render_hit(io::IO, hitlist::HitList, i::Integer)
 
 	kw = Dict{Symbol, Any}()
 	isempty(margin_labels) || (kw[:margin_labels] = margin_labels)
-	isempty(highlights) || (kw[:highlights] = highlights)
-	render(TableStyle(), io, nodes; kw...)
+#	isempty(highlights) || (kw[:highlights] = highlights)
+	render(CompactStyle(), io, nodes; kw...)
 end
 
 function Base.show(io::IO, ::MIME"text/plain", hitlist::HitList)
@@ -285,14 +285,12 @@ function Base.show(io::IO, ::MIME"text/plain", hitlist::HitList)
 	display_count = min(n, 5)
 	for i in 1:display_count
 		println(io)
-		println(io)
 		_render_hit(io, hitlist, i)
 	end
 
 	if n > display_count
 		println(io)
-		println(io)
-		printstyled(io, "⋮ $(n - display_count) more hits", color = :light_black)
+		printstyled(io, "⋮ $(n - display_count) more hits")
 	end
 end
 
