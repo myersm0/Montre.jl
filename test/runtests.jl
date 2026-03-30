@@ -1,45 +1,23 @@
 using Test
 using Montre
 using DataFrames
-using LazyArtifacts
 import Tables
-
-corpus_path = artifact"maupassant_corpus"
 
 @testset "Montre.jl" begin
 	@testset "Hit basics" begin
-		hit = Hit(10:14, "doc1.conllu", 0, 3)
+		hit = Hit(10:14, 0, 3)
 		@test first(hit.span) == 10
 		@test last(hit.span) == 14
 		@test length(hit.span) == 5
-		@test hit.document == "doc1.conllu"
-		@test isempty(hit.captures)
-		@test !haskey(hit, "a")
-		@test isempty(keys(hit))
-	end
-
-	@testset "Hit captures" begin
-		caps = ["a" => 10:12, "b" => 14:16]
-		hit = Hit(10:16, "doc1.conllu", 0, 0, caps)
-
-		@test hit["a"] == 10:12
-		@test hit["b"] == 14:16
-		@test haskey(hit, "a")
-		@test !haskey(hit, "c")
-		@test Set(keys(hit)) == Set(["a", "b"])
-		@test_throws KeyError hit["c"]
+		@test hit.document_index == 0
+		@test hit.sentence_index == 3
 	end
 
 	@testset "Hit show" begin
-		hit = Hit(10:14, "doc1.conllu", 0, 0)
+		hit = Hit(10:14, 0, 3)
 		r = repr(hit)
-		@test contains(r, "doc1.conllu")
 		@test contains(r, "10:14")
-
-		hit_cap = Hit(10:16, "doc1.conllu", 0, 0, ["a" => 10:12, "b" => 14:16])
-		r = repr(hit_cap)
-		@test contains(r, "a=10:12")
-		@test contains(r, "b=14:16")
+		@test contains(r, "doc=0")
 	end
 
 	@testset "Concordance Tables.jl" begin
@@ -69,9 +47,8 @@ corpus_path = artifact"maupassant_corpus"
 	end
 
 	@testset "spec parsing errors" begin
-		@test_throws ErrorException Montre._parse_spec(:lemma)
-		# structural fields allowed bare
-		spec = Montre._parse_spec(:document)
+		@test_throws ErrorException Montre.parse_spec(:lemma)
+		spec = Montre.parse_spec(:document)
 		@test spec.name == :document
 	end
 
@@ -93,13 +70,36 @@ corpus_path = artifact"maupassant_corpus"
 				hits = query(corpus, """[pos="NOUN"]""")
 				@test length(hits) > 0
 				@test hits[1] isa Hit
-				@test hits[1].document isa String
+				@test hits[1].document_index isa Integer
 
 				collected = collect(Iterators.take(hits, 3))
 				@test length(collected) == 3
 				@test all(h -> h isa Hit, collected)
 
 				@test count(corpus, """[pos="NOUN"]""") == length(hits)
+			end
+		end
+
+		@testset "document_name" begin
+			Montre.open(corpus_path) do corpus
+				hits = query(corpus, """[pos="NOUN"]""")
+				length(hits) == 0 && return
+
+				@test document_name(corpus, hits[1]) isa String
+				@test document_name(hits, 1) isa String
+				@test document_name(corpus, hits[1]) == document_name(hits, 1)
+			end
+		end
+
+		@testset "captures" begin
+			Montre.open(corpus_path) do corpus
+				hits = query(corpus, CQL("a:[pos='ADJ'] b:[pos='NOUN']"))
+				length(hits) == 0 && return
+
+				@test captures(hits) == ["a", "b"]
+				spans_a = captures(hits, "a")
+				@test spans_a[1] isa UnitRange{Int}
+				@test_throws KeyError captures(hits, "z")
 			end
 		end
 
@@ -200,7 +200,7 @@ corpus_path = artifact"maupassant_corpus"
 			end
 		end
 
-		@testset "projection returns HitList" begin
+		@testset "projection" begin
 			corpus = Montre.open(corpus_path)
 			if length(alignments(corpus)) > 0
 				aligns = alignments(corpus)
@@ -208,8 +208,7 @@ corpus_path = artifact"maupassant_corpus"
 				projected = project(corpus, hits, aligns[1].name)
 
 				@test projected isa HitList
-				@test is_projection(projected)
-				@test projected.projected !== nothing
+				@test length(projected) > 0
 				@test projected[1] isa Hit
 			end
 			close(corpus)
