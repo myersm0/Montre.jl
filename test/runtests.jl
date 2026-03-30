@@ -1,7 +1,10 @@
 using Test
 using Montre
 using DataFrames
+using LazyArtifacts
 import Tables
+
+corpus_path = artifact"maupassant_corpus"
 
 @testset "Montre.jl" begin
 	@testset "Hit basics" begin
