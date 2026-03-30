@@ -271,55 +271,6 @@ function _render_hit(io::IO, hitlist::HitList, i::Integer)
 	render(CompactStyle(), io, nodes; kw...)
 end
 
-function Base.show(io::IO, ::MIME"text/plain", hitlist::HitList)
-	n = length(hitlist)
-	n_docs = length(unique(hitlist.document_indices))
-	printstyled(io, "$(n) hits", bold = true)
-	print(io, " across $(n_docs) documents")
-	if is_projection(hitlist)
-		print(io, " ($(hitlist.projected) projected, $(hitlist.unmapped) unmapped, $(hitlist.no_alignment) unaligned)")
-	end
-
-	n == 0 && return
-
-	display_count = min(n, 5)
-	for i in 1:display_count
-		println(io)
-		_render_hit(io, hitlist, i)
-	end
-
-	if n > display_count
-		println(io)
-		printstyled(io, "⋮ $(n - display_count) more hits")
-	end
-end
-
-function Base.show(io::IO, hitlist::HitList)
-	print(io, "HitList($(length(hitlist)) hits)")
-end
-
-function Base.show(io::IO, hit::Hit)
-	print(io, "Hit($(hit.document)")
-	if !isempty(hit.captures)
-		for (name, span) in hit.captures
-			print(io, ", $name=$(first(span)):$(last(span))")
-		end
-	else
-		print(io, ", $(first(hit.span)):$(last(hit.span))")
-	end
-	print(io, ")")
-end
-
-function Base.show(io::IO, cql::CQL)
-	print(io, "cql\"", replace(cql.query, "\"" => "'"), "\"")
-end
-
-function Base.show(io::IO, line::ConcordanceLine)
-	print(io, lpad(line.left, 30), "  ")
-	printstyled(io, line.match_text, bold = true)
-	print(io, "  ", line.right)
-end
-
 function _truncate(s::AbstractString, width::Int)
 	textwidth(s) <= width && return s
 	chars = collect(s)
@@ -333,31 +284,3 @@ function _truncate(s::AbstractString, width::Int)
 	return s
 end
 
-function Base.show(io::IO, ::MIME"text/plain", conc::Concordance)
-	n = length(conc)
-	n == 0 && (print(io, "Concordance (empty)"); return)
-
-	lines = conc.lines
-	term_width = displaysize(io)[2]
-
-	doc_width = min(maximum(textwidth(l.document) for l in lines), 24)
-	match_width = min(maximum(textwidth(l.match_text) for l in lines), 30)
-
-	fixed = doc_width + match_width + 6
-	remaining = max(term_width - fixed, 20)
-	side_width = remaining ÷ 2
-
-	println(io, "Concordance ($(n) lines)")
-	for line in lines
-		doc = _truncate(line.document, doc_width)
-		left = _truncate(line.left, side_width)
-		match = _truncate(line.match_text, match_width)
-		right = _truncate(line.right, side_width)
-
-		printstyled(io, rpad(doc, doc_width), color = :light_black)
-		print(io, " ", lpad(left, side_width), " ")
-		printstyled(io, match, bold = true)
-		print(io, " ", rpad(right, side_width))
-		line !== last(lines) && println(io)
-	end
-end

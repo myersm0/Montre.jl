@@ -35,4 +35,6 @@ export extract, frequency
 
 include("tables.jl")
 
+include("show.jl")
+
 end

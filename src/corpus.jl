@@ -202,27 +202,3 @@ function build(input::AbstractString, output::AbstractString;
 	end
 end
 
-# ---- display ----
-
-function Base.show(io::IO, corpus::Corpus)
-	if !isopen(corpus)
-		print(io, "Corpus (closed)")
-		return
-	end
-	tokens = token_count(corpus)
-	n_documents = Int(corpus_document_count(corpus.pointer))
-	n_components = Int(corpus_component_count(corpus.pointer))
-	print(io, "Corpus($(tokens) tokens, $(n_documents) documents")
-	if n_components > 1
-		print(io, ", $(n_components) components")
-	end
-	print(io, ")")
-end
-
-function Base.show(io::IO, component::Component)
-	print(io, "Component(\"$(component.name)\", $(component.language), $(component.token_count) tokens)")
-end
-
-function Base.show(io::IO, alignment::Alignment)
-	print(io, "Alignment(\"$(alignment.name)\", $(alignment.source) → $(alignment.target), $(alignment.edge_count) edges)")
-end
