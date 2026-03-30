@@ -1,15 +1,13 @@
-using DataFrames
 
-# ---- spec parsing ----
+## spec parsing
 
 struct ExtractSpec
 	name::Symbol
 	func::Function
 end
 
-const structural_fields = Set(["document", "width", "span", "start", "stop", "sentence_index"])
-
 function parse_spec(spec::Symbol)
+	structural_fields = ["document", "width", "span", "start", "stop", "sentence_index"]
 	String(spec) in structural_fields || error(
 		"bare :$spec is ambiguous for annotation layers — " *
 		"specify a reduction, e.g. :$spec => join or :$spec => collect"
@@ -37,7 +35,8 @@ function parse_specs(specs)
 	[parse_spec(s) for s in specs]
 end
 
-# ---- extract ----
+
+## extract
 
 function extract(hitlist::HitList, ::Type{DataFrame}, specs...)
 	parsed = parse_specs(specs)
@@ -83,7 +82,8 @@ function typed_vector(col::Vector{Any})
 	end
 end
 
-# ---- frequency (convenience) ----
+
+## frequency
 
 function frequency(hitlist::HitList; by::Union{Pair, Symbol} = :word => join)
 	spec = by isa Symbol ? (by => join) : by
@@ -92,3 +92,4 @@ function frequency(hitlist::HitList; by::Union{Pair, Symbol} = :word => join)
 	combine(groupby(df, col_name), nrow => :count) |>
 		x -> sort(x, :count; rev = true)
 end
+

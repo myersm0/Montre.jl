@@ -1,4 +1,5 @@
-# ---- SoA construction ----
+
+## SoA construction
 
 function build_capture_store(pointer::Ptr{Nothing}, n::Int)
 	n == 0 && return CaptureStore()
@@ -29,9 +30,10 @@ function materialize_hitlist(pointer::Ptr{Nothing}, corpus::Corpus)
 	HitList(pointer, corpus, starts, ends, document_indices, sentence_indices, capture_store)
 end
 
-# ---- query ----
 
-function query(corpus::Corpus, cql::AbstractString; component::Union{AbstractString, Nothing} = nothing)
+## query
+
+function query(corpus::Corpus, cql::AbstractString; component = nothing)
 	pointer = if component === nothing
 		query(corpus.pointer, cql)
 	else
@@ -40,7 +42,7 @@ function query(corpus::Corpus, cql::AbstractString; component::Union{AbstractStr
 	materialize_hitlist(pointer, corpus)
 end
 
-function Base.count(corpus::Corpus, cql::AbstractString; component::Union{AbstractString, Nothing} = nothing)
+function Base.count(corpus::Corpus, cql::AbstractString; component = nothing)
 	if component === nothing
 		Int(query_count(corpus.pointer, cql))
 	else
@@ -56,7 +58,8 @@ end
 
 function fetch_layer(corpus_ptr::Ptr{Nothing}, start::Int, stop::Int, layer::String)
 	vals = corpus_token_annotations(corpus_ptr, start, stop, layer)
-	isempty(vals) ? nothing : vals
+	!isempty(vals) || return nothing 
+	return vals
 end
 
 function build_nodes(hitlist::HitList, i::Integer)
@@ -69,13 +72,13 @@ function build_nodes(hitlist::HitList, i::Integer)
 	ptr = corpus.pointer
 	available = Set(conllu_layers(corpus))
 
-	words = "word" in available ? fetch_layer(ptr, hit_start, hit_end, "word") : nothing
-	lemmas = "lemma" in available ? fetch_layer(ptr, hit_start, hit_end, "lemma") : nothing
-	pos_tags = "pos" in available ? fetch_layer(ptr, hit_start, hit_end, "pos") : nothing
-	xpos_tags = "xpos" in available ? fetch_layer(ptr, hit_start, hit_end, "xpos") : nothing
-	feats_strs = "feats" in available ? fetch_layer(ptr, hit_start, hit_end, "feats") : nothing
-	heads = "head" in available ? fetch_layer(ptr, hit_start, hit_end, "head") : nothing
-	deprels = "deprel" in available ? fetch_layer(ptr, hit_start, hit_end, "deprel") : nothing
+	words = fetch_layer(ptr, hit_start, hit_end, "word")
+	lemmas = fetch_layer(ptr, hit_start, hit_end, "lemma")
+	pos_tags = fetch_layer(ptr, hit_start, hit_end, "pos")
+	xpos_tags = fetch_layer(ptr, hit_start, hit_end, "xpos")
+	feats_strs = fetch_layer(ptr, hit_start, hit_end, "feats")
+	heads = fetch_layer(ptr, hit_start, hit_end, "head")
+	deprels = fetch_layer(ptr, hit_start, hit_end, "deprel")
 
 	val(v, j) = v !== nothing && j <= length(v) ? v[j] : "_"
 

@@ -27,7 +27,10 @@ function component_index(corpus::Corpus, name::AbstractString)
 	return idx
 end
 
-function resolve_document(corpus::Corpus, document::AbstractString; component::Union{AbstractString, Nothing} = nothing)
+function resolve_document(
+		corpus::Corpus, document::AbstractString; 
+		component::Union{AbstractString, Nothing} = nothing
+	)
 	if component !== nothing
 		r = document_range(corpus, component)
 		for i in r
@@ -42,7 +45,7 @@ function resolve_document(corpus::Corpus, document::AbstractString; component::U
 	return doc_idx
 end
 
-function token_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing, document::Union{AbstractString, Nothing} = nothing)
+function token_count(corpus::Corpus; component = nothing, document = nothing)
 	if document !== nothing
 		doc_idx = resolve_document(corpus, document; component)
 		return length(span_at(corpus, "document", doc_idx))
@@ -54,22 +57,22 @@ function token_count(corpus::Corpus; component::Union{AbstractString, Nothing} =
 	Int(corpus_token_count(corpus.pointer))
 end
 
-function component_token_range(corpus::Corpus, component_name::AbstractString)
-	idx = component_index(corpus, component_name)
+function component_token_range(corpus::Corpus, component::AbstractString)
+	idx = component_index(corpus, component)
 	r = corpus_component_document_range(corpus.pointer, idx)
 	first_doc = span_at(corpus, "document", first(r))
 	last_doc = span_at(corpus, "document", last(r))
 	return first(first_doc):last(last_doc)
 end
 
-function document_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing)
+function document_count(corpus::Corpus; component = nothing)
 	if component !== nothing
 		return length(document_range(corpus, component))
 	end
 	Int(corpus_document_count(corpus.pointer))
 end
 
-function sentence_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing, document::Union{AbstractString, Nothing} = nothing)
+function sentence_count(corpus::Corpus; component = nothing, document = nothing)
 	if document !== nothing
 		doc_idx = resolve_document(corpus, document; component)
 		doc_span = span_at(corpus, "document", doc_idx)
@@ -95,7 +98,7 @@ function features(corpus::Corpus)
 	filter(l -> startswith(l, "feats."), layers(corpus))
 end
 
-function documents(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing)
+function documents(corpus::Corpus; component = nothing)
 	if component === nothing
 		n = Int(corpus_document_count(corpus.pointer))
 		return [corpus_document_name(corpus.pointer, i) for i in 0:n - 1]
@@ -116,8 +119,8 @@ function document_name(hitlist::HitList, i::Integer)
 	something(corpus_document_name(hitlist.corpus.pointer, hitlist.document_indices[i]), "?")
 end
 
-function document_range(corpus::Corpus, component_name::AbstractString)
-	idx = component_index(corpus, component_name)
+function document_range(corpus::Corpus, component::AbstractString)
+	idx = component_index(corpus, component)
 	corpus_component_document_range(corpus.pointer, idx)
 end
 
@@ -200,9 +203,10 @@ function edges(corpus::Corpus, alignment::AbstractString)
 	]
 end
 
-function build(input::AbstractString, output::AbstractString;
-	name::AbstractString = "corpus", decompose_feats::Bool = false, strict::Bool = false,
-)
+function build(
+		input::AbstractString, output::AbstractString;
+		name = "corpus", decompose_feats = false, strict = false,
+	)
 	if endswith(input, ".toml")
 		build_manifest(input, output; decompose_feats, strict)
 	else
