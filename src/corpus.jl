@@ -21,13 +21,13 @@ end
 
 Base.isopen(corpus::Corpus) = corpus.pointer != C_NULL
 
-function _component_index(corpus::Corpus, name::AbstractString)
-	idx = corpus_component_index_by_name(corpus.pointer, name)
+function component_index(corpus::Corpus, name::AbstractString)
+	idx = corpuscomponent_index_by_name(corpus.pointer, name)
 	idx === nothing && error("Montre: component not found: $name")
 	return idx
 end
 
-function _resolve_document(corpus::Corpus, document::AbstractString; component::Union{AbstractString, Nothing} = nothing)
+function resolve_document(corpus::Corpus, document::AbstractString; component::Union{AbstractString, Nothing} = nothing)
 	if component !== nothing
 		r = document_range(corpus, component)
 		for i in r
@@ -44,18 +44,18 @@ end
 
 function token_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing, document::Union{AbstractString, Nothing} = nothing)
 	if document !== nothing
-		doc_idx = _resolve_document(corpus, document; component)
+		doc_idx = resolve_document(corpus, document; component)
 		return length(span_at(corpus, "document", doc_idx))
 	end
 	if component !== nothing
-		idx = _component_index(corpus, component)
+		idx = component_index(corpus, component)
 		return something(corpus_component_token_count(corpus.pointer, idx), 0)
 	end
 	Int(corpus_token_count(corpus.pointer))
 end
 
-function _component_token_range(corpus::Corpus, component_name::AbstractString)
-	idx = _component_index(corpus, component_name)
+function component_token_range(corpus::Corpus, component_name::AbstractString)
+	idx = component_index(corpus, component_name)
 	r = corpus_component_document_range(corpus.pointer, idx)
 	first_doc = span_at(corpus, "document", first(r))
 	last_doc = span_at(corpus, "document", last(r))
@@ -71,12 +71,12 @@ end
 
 function sentence_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing, document::Union{AbstractString, Nothing} = nothing)
 	if document !== nothing
-		doc_idx = _resolve_document(corpus, document; component)
+		doc_idx = resolve_document(corpus, document; component)
 		doc_span = span_at(corpus, "document", doc_idx)
 		return something(corpus_span_count_in_range(corpus.pointer, "sentence", first(doc_span), last(doc_span) + 1), 0)
 	end
 	if component !== nothing
-		r = _component_token_range(corpus, component)
+		r = component_token_range(corpus, component)
 		return something(corpus_span_count_in_range(corpus.pointer, "sentence", first(r), last(r) + 1), 0)
 	end
 	something(corpus_span_count(corpus.pointer, "sentence"), 0)
@@ -117,7 +117,7 @@ function document_name(hitlist::HitList, i::Integer)
 end
 
 function document_range(corpus::Corpus, component_name::AbstractString)
-	idx = _component_index(corpus, component_name)
+	idx = component_index(corpus, component_name)
 	corpus_component_document_range(corpus.pointer, idx)
 end
 
