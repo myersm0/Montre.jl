@@ -27,10 +27,7 @@ function component_index(corpus::Corpus, name::AbstractString)
 	return idx
 end
 
-function resolve_document(
-		corpus::Corpus, document::AbstractString; 
-		component::Union{AbstractString, Nothing} = nothing
-	)
+function resolve_document(corpus::Corpus, document::AbstractString; component = nothing)
 	if component !== nothing
 		r = document_range(corpus, component)
 		for i in r

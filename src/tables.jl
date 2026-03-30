@@ -1,7 +1,5 @@
 import Tables
 
-# ---- Concordance ----
-
 Tables.istable(::Type{Concordance}) = true
 Tables.rowaccess(::Type{Concordance}) = true
 Tables.rows(conc::Concordance) = conc.lines

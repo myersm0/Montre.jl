@@ -136,12 +136,9 @@ end
 # ---- concordance ----
 
 function concordance(
-	corpus::Corpus,
-	hitlist::HitList;
-	context::Integer = 5,
-	layer::Layer = :word,
-	limit::Integer = 20,
-)
+		corpus::Corpus, hitlist::HitList;
+		context::Integer = 5, layer::Layer = :word, limit::Integer = 20
+	)
 	layer_str = String(layer)
 	total = min(length(hitlist), limit)
 	total_tokens = token_count(corpus)
@@ -179,12 +176,9 @@ concordance(hitlist::HitList; kwargs...) = concordance(hitlist.corpus, hitlist; 
 # ---- collocates ----
 
 function collocates(
-	corpus::Corpus,
-	hitlist::HitList;
-	window::Integer = 5,
-	layer::Layer = :lemma,
-	positional::Bool = false,
-)
+		corpus::Corpus, hitlist::HitList;
+		window::Integer = 5, layer::Layer = :lemma, positional::Bool = false
+	)
 	raw = context_tokens(hitlist.pointer, corpus.pointer, window, String(layer))
 
 	if positional

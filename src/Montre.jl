@@ -17,6 +17,8 @@ end
 const exiting = Ref(false)
 atexit(() -> exiting[] = true)
 
+const Layer = Union{Symbol, AbstractString}
+
 include("types.jl")
 export Corpus, HitList, Hit, Component, Alignment,
 	Concordance, ConcordanceLine, CQL, @cql_str

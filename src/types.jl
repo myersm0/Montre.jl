@@ -1,4 +1,3 @@
-const Layer = Union{Symbol, AbstractString}
 
 mutable struct Corpus
 	pointer::Ptr{Nothing}
@@ -31,7 +30,8 @@ struct Alignment
 	edge_count::Int
 end
 
-# ---- Hit ----
+
+## Hit
 
 struct Hit
 	span::UnitRange{Int}
@@ -39,7 +39,8 @@ struct Hit
 	sentence_index::Int
 end
 
-# ---- CaptureStore (internal SoA) ----
+
+## CaptureStore (internal SoA)
 
 struct CaptureStore
 	names::Vector{String}
@@ -50,7 +51,8 @@ end
 CaptureStore() = CaptureStore(String[], Dict{String, Vector{Int}}(), Dict{String, Vector{Int}}())
 Base.isempty(store::CaptureStore) = isempty(store.names)
 
-# ---- HitList ----
+
+## HitList
 
 mutable struct HitList <: AbstractVector{Hit}
 	pointer::Ptr{Nothing}
@@ -88,7 +90,8 @@ function Base.getindex(hitlist::HitList, i::Int)
 	)
 end
 
-# ---- HitRow (accessor for lambda specs in extract) ----
+
+## HitRow (accessor for lambda specs in extract)
 
 struct HitRow
 	corpus::Corpus
@@ -135,7 +138,8 @@ function Base.getindex(row::HitRow, capture_name::AbstractString, layer::Layer)
 	corpus_token_annotations(row.corpus.pointer, cs, ce, String(layer))
 end
 
-# ---- Concordance ----
+
+## Concordance
 
 struct ConcordanceLine
 	left::String
@@ -156,7 +160,8 @@ Base.firstindex(::Concordance) = 1
 Base.lastindex(c::Concordance) = length(c.lines)
 Base.eltype(::Type{Concordance}) = ConcordanceLine
 
-# ---- CQL ----
+
+## CQL
 
 struct CQL
 	query::String
@@ -166,3 +171,4 @@ end
 macro cql_str(s)
 	:(CQL($s))
 end
+

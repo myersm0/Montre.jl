@@ -1,4 +1,3 @@
-# ---- Corpus, Component, Alignment ----
 
 function Base.show(io::IO, corpus::Corpus)
 	if !isopen(corpus)
@@ -23,13 +22,12 @@ function Base.show(io::IO, alignment::Alignment)
 	print(io, "Alignment(\"$(alignment.name)\", $(alignment.source) → $(alignment.target), $(alignment.edge_count) edges)")
 end
 
-# ---- Hit ----
-
 function Base.show(io::IO, hit::Hit)
 	print(io, "Hit($(first(hit.span)):$(last(hit.span)), doc=$(hit.document_index))")
 end
 
-# ---- HitList ----
+
+## HitList
 
 function capture_margin_labels(hitlist::HitList, i::Integer)
 	store = hitlist.capture_store
@@ -101,13 +99,15 @@ function Base.show(io::IO, hitlist::HitList)
 	print(io, "HitList($(length(hitlist)) hits)")
 end
 
-# ---- CQL ----
+
+## CQL
 
 function Base.show(io::IO, cql::CQL)
 	print(io, "cql\"", replace(cql.query, "\"" => "'"), "\"")
 end
 
-# ---- Concordance ----
+
+## Concordance
 
 function Base.show(io::IO, line::ConcordanceLine)
 	print(io, lpad(line.left, 30), "  ")
