@@ -1,3 +1,6 @@
+
+## lifecycle
+
 function open(path::AbstractString)
 	pointer = corpus_open(path)
 	return Corpus(pointer)
@@ -21,13 +24,16 @@ end
 
 Base.isopen(corpus::Corpus) = corpus.pointer != C_NULL
 
-function _component_index(corpus::Corpus, name::AbstractString)
+
+## component and document resolution
+
+function component_index(corpus::Corpus, name::AbstractString)
 	idx = corpus_component_index_by_name(corpus.pointer, name)
 	idx === nothing && error("Montre: component not found: $name")
 	return idx
 end
 
-function _resolve_document(corpus::Corpus, document::AbstractString; component::Union{AbstractString, Nothing} = nothing)
+function resolve_document(corpus::Corpus, document::AbstractString; component = nothing)
 	if component !== nothing
 		r = document_range(corpus, component)
 		for i in r
@@ -42,41 +48,44 @@ function _resolve_document(corpus::Corpus, document::AbstractString; component::
 	return doc_idx
 end
 
-function token_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing, document::Union{AbstractString, Nothing} = nothing)
-	if document !== nothing
-		doc_idx = _resolve_document(corpus, document; component)
-		return length(span_at(corpus, "document", doc_idx))
-	end
-	if component !== nothing
-		idx = _component_index(corpus, component)
-		return something(corpus_component_token_count(corpus.pointer, idx), 0)
-	end
-	Int(corpus_token_count(corpus.pointer))
-end
-
-function _component_token_range(corpus::Corpus, component_name::AbstractString)
-	idx = _component_index(corpus, component_name)
+function component_token_range(corpus::Corpus, component::AbstractString)
+	idx = component_index(corpus, component)
 	r = corpus_component_document_range(corpus.pointer, idx)
 	first_doc = span_at(corpus, "document", first(r))
 	last_doc = span_at(corpus, "document", last(r))
 	return first(first_doc):last(last_doc)
 end
 
-function document_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing)
+
+## counting
+
+function token_count(corpus::Corpus; component = nothing, document = nothing)
+	if document !== nothing
+		doc_idx = resolve_document(corpus, document; component)
+		return length(span_at(corpus, "document", doc_idx))
+	end
+	if component !== nothing
+		idx = component_index(corpus, component)
+		return something(corpus_component_token_count(corpus.pointer, idx), 0)
+	end
+	Int(corpus_token_count(corpus.pointer))
+end
+
+function document_count(corpus::Corpus; component = nothing)
 	if component !== nothing
 		return length(document_range(corpus, component))
 	end
 	Int(corpus_document_count(corpus.pointer))
 end
 
-function sentence_count(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing, document::Union{AbstractString, Nothing} = nothing)
+function sentence_count(corpus::Corpus; component = nothing, document = nothing)
 	if document !== nothing
-		doc_idx = _resolve_document(corpus, document; component)
+		doc_idx = resolve_document(corpus, document; component)
 		doc_span = span_at(corpus, "document", doc_idx)
 		return something(corpus_span_count_in_range(corpus.pointer, "sentence", first(doc_span), last(doc_span) + 1), 0)
 	end
 	if component !== nothing
-		r = _component_token_range(corpus, component)
+		r = component_token_range(corpus, component)
 		return something(corpus_span_count_in_range(corpus.pointer, "sentence", first(r), last(r) + 1), 0)
 	end
 	something(corpus_span_count(corpus.pointer, "sentence"), 0)
@@ -85,6 +94,9 @@ end
 function component_count(corpus::Corpus)
 	Int(corpus_component_count(corpus.pointer))
 end
+
+
+## layers
 
 function layers(corpus::Corpus)
 	n = Int(corpus_layer_count(corpus.pointer))
@@ -95,7 +107,10 @@ function features(corpus::Corpus)
 	filter(l -> startswith(l, "feats."), layers(corpus))
 end
 
-function documents(corpus::Corpus; component::Union{AbstractString, Nothing} = nothing)
+
+## documents
+
+function documents(corpus::Corpus; component = nothing)
 	if component === nothing
 		n = Int(corpus_document_count(corpus.pointer))
 		return [corpus_document_name(corpus.pointer, i) for i in 0:n - 1]
@@ -108,20 +123,21 @@ function document_name(corpus::Corpus, index::Integer)
 	corpus_document_name(corpus.pointer, index)
 end
 
-function document_range(corpus::Corpus, component_name::AbstractString)
-	idx = _component_index(corpus, component_name)
+function document_name(corpus::Corpus, hit::Hit)
+	something(corpus_document_name(corpus.pointer, hit.document_index), "?")
+end
+
+function document_name(hitlist::HitList, i::Integer)
+	something(corpus_document_name(hitlist.corpus.pointer, hitlist.document_indices[i]), "?")
+end
+
+function document_range(corpus::Corpus, component::AbstractString)
+	idx = component_index(corpus, component)
 	corpus_component_document_range(corpus.pointer, idx)
 end
 
-function span_at(corpus::Corpus, layer::Layer, index::Integer)
-	result = corpus_span_at(corpus.pointer, _layer_name(layer), index)
-	result === nothing && error("Montre: invalid span layer or index")
-	return result
-end
 
-function span_containing(corpus::Corpus, layer::Layer, position::Integer)
-	corpus_span_containing(corpus.pointer, _layer_name(layer), position)
-end
+## components and alignments
 
 function components(corpus::Corpus)
 	n = Int(corpus_component_count(corpus.pointer))
@@ -133,34 +149,6 @@ function components(corpus::Corpus)
 		)
 		for i in 0:n - 1
 	]
-end
-
-function span_layers(corpus::Corpus)
-	n = Int(corpus_span_layer_count(corpus.pointer))
-	[corpus_span_layer_name(corpus.pointer, i) for i in 0:n - 1]
-end
-
-function vocabulary(corpus::Corpus, layer::Layer; top::Union{Integer, Nothing} = nothing)
-	values, counts = corpus_inverted_counts(corpus.pointer, _layer_name(layer))
-	entries = [(; value = v, count = c) for (v, c) in zip(values, counts)]
-	sort!(entries; by = e -> e.count, rev = true)
-	top === nothing ? entries : first(entries, min(top, length(entries)))
-end
-
-function annotation(corpus::Corpus, position::Integer, layer::Layer)
-	corpus_token_annotation(corpus.pointer, position, _layer_name(layer))
-end
-
-function annotations(corpus::Corpus, range::UnitRange, layer::Layer)
-	corpus_token_annotations(corpus.pointer, first(range), last(range) + 1, _layer_name(layer))
-end
-
-function span_text(corpus::Corpus, start::Integer, stop::Integer; layer::Layer = :word)
-	corpus_span_text(corpus.pointer, start, stop, _layer_name(layer))
-end
-
-function span_text(corpus::Corpus, range::UnitRange; layer::Layer = :word)
-	span_text(corpus, first(range), last(range) + 1; layer = layer)
 end
 
 function alignments(corpus::Corpus)
@@ -192,37 +180,60 @@ function edges(corpus::Corpus, alignment::AbstractString)
 	]
 end
 
-function build(input::AbstractString, output::AbstractString;
-	name::AbstractString = "corpus", decompose_feats::Bool = false, strict::Bool = false,
-)
+
+## spans
+
+function span_layers(corpus::Corpus)
+	n = Int(corpus_span_layer_count(corpus.pointer))
+	[corpus_span_layer_name(corpus.pointer, i) for i in 0:n - 1]
+end
+
+function span_at(corpus::Corpus, layer::Layer, index::Integer)
+	result = corpus_span_at(corpus.pointer, String(layer), index)
+	result === nothing && error("Montre: invalid span layer or index")
+	return result
+end
+
+function span_containing(corpus::Corpus, layer::Layer, position::Integer)
+	corpus_span_containing(corpus.pointer, String(layer), position)
+end
+
+
+## token access
+
+function vocabulary(corpus::Corpus, layer::Layer; top::Union{Integer, Nothing} = nothing)
+	values, counts = corpus_inverted_counts(corpus.pointer, String(layer))
+	entries = [(; value = v, count = c) for (v, c) in zip(values, counts)]
+	sort!(entries; by = e -> e.count, rev = true)
+	top === nothing ? entries : first(entries, min(top, length(entries)))
+end
+
+function annotation(corpus::Corpus, position::Integer, layer::Layer)
+	corpus_token_annotation(corpus.pointer, position, String(layer))
+end
+
+function annotations(corpus::Corpus, range::UnitRange, layer::Layer)
+	corpus_token_annotations(corpus.pointer, first(range), last(range) + 1, String(layer))
+end
+
+function span_text(corpus::Corpus, start::Integer, stop::Integer; layer::Layer = :word)
+	corpus_span_text(corpus.pointer, start, stop, String(layer))
+end
+
+function span_text(corpus::Corpus, range::UnitRange; layer::Layer = :word)
+	span_text(corpus, first(range), last(range) + 1; layer = layer)
+end
+
+
+## build
+
+function build(
+		input::AbstractString, output::AbstractString;
+		name = "corpus", decompose_feats = false, strict = false,
+	)
 	if endswith(input, ".toml")
 		build_manifest(input, output; decompose_feats, strict)
 	else
 		build_directory(name, input, output; decompose_feats, strict)
 	end
-end
-
-# ---- display ----
-
-function Base.show(io::IO, corpus::Corpus)
-	if !isopen(corpus)
-		print(io, "Corpus (closed)")
-		return
-	end
-	tokens = token_count(corpus)
-	n_documents = Int(corpus_document_count(corpus.pointer))
-	n_components = Int(corpus_component_count(corpus.pointer))
-	print(io, "Corpus($(tokens) tokens, $(n_documents) documents")
-	if n_components > 1
-		print(io, ", $(n_components) components")
-	end
-	print(io, ")")
-end
-
-function Base.show(io::IO, component::Component)
-	print(io, "Component(\"$(component.name)\", $(component.language), $(component.token_count) tokens)")
-end
-
-function Base.show(io::IO, alignment::Alignment)
-	print(io, "Alignment(\"$(alignment.name)\", $(alignment.source) → $(alignment.target), $(alignment.edge_count) edges)")
 end

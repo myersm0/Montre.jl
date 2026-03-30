@@ -1,5 +1,9 @@
 module Montre
 
+using DataFrames
+using Tables
+using UniversalDependencies
+
 const deps_file = joinpath(@__DIR__, "..", "deps", "deps.jl")
 if isfile(deps_file)
 	include(deps_file)
@@ -10,10 +14,13 @@ else
 	)
 end
 
-using UniversalDependencies
+const exiting = Ref(false)
+atexit(() -> exiting[] = true)
+
+const Layer = Union{Symbol, AbstractString}
 
 include("types.jl")
-export Corpus, HitList, Component, Alignment, ProjectionResult,
+export Corpus, HitList, Hit, Component, Alignment,
 	Concordance, ConcordanceLine, CQL, @cql_str
 
 include("ffi.jl")
@@ -25,7 +32,15 @@ export token_count, document_count, sentence_count, component_count,
 	vocabulary, annotation, annotations, span_text
 
 include("query.jl")
-export query, tokens, column, captures, concordance, frequency, collocates, project
+export query, captures, project
+
+include("concordance.jl")
+export tokens, concordance, collocates
+
+include("extract.jl")
+export extract, frequency
+
+include("show.jl")
 
 include("tables.jl")
 

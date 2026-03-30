@@ -1,0 +1,7 @@
+[maupassant_corpus]
+git-tree-sha1 = "ba42bc345f4dcc924108e6d0403e4209c30ea14d"
+lazy = true
+
+    [[maupassant_corpus.download]]
+    url = "https://gist.githubusercontent.com/myersm0/71650f7da2164b894f71ec0afce38575/raw/fd52871320c40b829c8b6515be84a607cd3d94cf/maupassant-corpus.tar.gz"
+    sha256 = "b73cfa51d9b974a3f89f875aa3c03d2a63b4a5a53f1e2e3e1dd81874ac505726"

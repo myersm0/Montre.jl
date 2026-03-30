@@ -1,10 +1,3 @@
-const _exiting = Ref(false)
-atexit(() -> _exiting[] = true)
-
-_layer_name(x::Symbol) = String(x)
-_layer_name(x::AbstractString) = String(x)
-
-const Layer = Union{Symbol, AbstractString}
 
 mutable struct Corpus
 	pointer::Ptr{Nothing}
@@ -12,7 +5,7 @@ mutable struct Corpus
 	function Corpus(pointer::Ptr{Nothing})
 		corpus = new(pointer)
 		finalizer(corpus) do c
-			if !_exiting[] && c.pointer != C_NULL
+			if !exiting[] && c.pointer != C_NULL
 				corpus_close(c.pointer)
 				c.pointer = C_NULL
 			end
@@ -21,11 +14,13 @@ mutable struct Corpus
 	end
 end
 
+
 struct Component
 	name::String
 	language::String
 	token_count::Int
 end
+
 
 struct Alignment
 	name::String
@@ -37,6 +32,14 @@ struct Alignment
 	edge_count::Int
 end
 
+
+struct Hit
+	span::UnitRange{Int}
+	document_index::Int
+	sentence_index::Int
+end
+
+
 struct CaptureStore
 	names::Vector{String}
 	starts::Dict{String, Vector{Int}}
@@ -46,14 +49,8 @@ end
 CaptureStore() = CaptureStore(String[], Dict{String, Vector{Int}}(), Dict{String, Vector{Int}}())
 Base.isempty(store::CaptureStore) = isempty(store.names)
 
-const _conllu_layers = ["word", "lemma", "pos", "xpos", "feats", "deprel"]
 
-function _corpus_conllu_layers(corpus::Corpus)
-	available = Set(layers(corpus))
-	filter(l -> l in available, _conllu_layers)
-end
-
-mutable struct HitList
+mutable struct HitList <: AbstractVector{Hit}
 	pointer::Ptr{Nothing}
 	corpus::Corpus
 	starts::Vector{Int}
@@ -61,18 +58,15 @@ mutable struct HitList
 	document_indices::Vector{Int}
 	sentence_indices::Vector{Int}
 	capture_store::CaptureStore
-	show_layers::Vector{String}
-	column_cache::Dict{String, Vector{Vector{String}}}
 
-	function HitList(pointer, corpus, starts, ends, document_indices, sentence_indices, capture_store, show_layers)
+	function HitList(pointer, corpus, starts, ends, document_indices, sentence_indices, capture_store)
 		hitlist = new(
 			pointer, corpus, starts, ends,
 			document_indices, sentence_indices,
-			capture_store, show_layers,
-			Dict{String, Vector{Vector{String}}}(),
+			capture_store,
 		)
 		finalizer(hitlist) do h
-			if !_exiting[] && h.pointer != C_NULL
+			if !exiting[] && h.pointer != C_NULL
 				hitlist_free(h.pointer)
 				h.pointer = C_NULL
 			end
@@ -81,7 +75,63 @@ mutable struct HitList
 	end
 end
 
-Base.length(hitlist::HitList) = length(hitlist.starts)
+Base.size(hitlist::HitList) = (length(hitlist.starts),)
+
+function Base.getindex(hitlist::HitList, i::Int)
+	@boundscheck checkbounds(hitlist, i)
+	Hit(
+		hitlist.starts[i]:hitlist.ends[i] - 1,
+		hitlist.document_indices[i],
+		hitlist.sentence_indices[i],
+	)
+end
+
+
+struct HitRow
+   corpus::Corpus
+   hit_start::Int
+   hit_end::Int
+   document::String
+   sentence_index::Int
+   capture_starts::Dict{String, Int}
+   capture_ends::Dict{String, Int}
+end
+
+function HitRow(hitlist::HitList, i::Int)
+   store = hitlist.capture_store
+   cap_starts = Dict{String, Int}()
+   cap_ends = Dict{String, Int}()
+   for name in store.names
+      cap_starts[name] = store.starts[name][i]
+      cap_ends[name] = store.ends[name][i]
+   end
+   HitRow(
+      hitlist.corpus,
+      hitlist.starts[i], hitlist.ends[i],
+      document_name(hitlist, i),
+      hitlist.sentence_indices[i],
+      cap_starts, cap_ends,
+   )
+end
+
+function Base.getindex(row::HitRow, layer::Layer)
+   name = String(layer)
+   name == "document" && return row.document
+   name == "width" && return row.hit_end - row.hit_start
+   name == "span" && return row.hit_start:row.hit_end - 1
+   name == "start" && return row.hit_start
+   name == "stop" && return row.hit_end - 1
+   name == "sentence_index" && return row.sentence_index
+   corpus_token_annotations(row.corpus.pointer, row.hit_start, row.hit_end, name)
+end
+
+function Base.getindex(row::HitRow, capture_name::AbstractString, layer::Layer)
+   haskey(row.capture_starts, capture_name) || throw(KeyError(capture_name))
+   cs = row.capture_starts[capture_name]
+   ce = row.capture_ends[capture_name]
+   corpus_token_annotations(row.corpus.pointer, cs, ce, String(layer))
+end
+
 
 struct ConcordanceLine
 	left::String
@@ -101,15 +151,6 @@ Base.iterate(c::Concordance, s...) = iterate(c.lines, s...)
 Base.firstindex(::Concordance) = 1
 Base.lastindex(c::Concordance) = length(c.lines)
 Base.eltype(::Type{Concordance}) = ConcordanceLine
-
-struct ProjectionResult
-	hits::HitList
-	unmapped::Int
-	no_alignment::Int
-	projected::Int
-end
-
-Base.length(pr::ProjectionResult) = length(pr.hits)
 
 struct CQL
 	query::String

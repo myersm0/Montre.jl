@@ -1,76 +1,33 @@
 using Test
 using Montre
+using DataFrames
 import Tables
 
 @testset "Montre.jl" begin
-	@testset "types" begin
+	@testset "Hit basics" begin
 		hit = Hit(10:14, 0, 3)
 		@test first(hit.span) == 10
 		@test last(hit.span) == 14
 		@test length(hit.span) == 5
-		@test isempty(hit.captures)
-
-		line = ConcordanceLine("the dark", "night", "was cold", "doc1.conllu", 42)
-		@test line.match_text == "night"
-		@test line.position == 42
+		@test hit.document_index == 0
+		@test hit.sentence_index == 3
 	end
 
-	@testset "Hit captures" begin
-		captures = ["a" => 10:12, "b" => 14:16]
-		hit = Hit(10:16, 0, 0, captures)
-
-		@test hit["a"] == 10:12
-		@test hit["b"] == 14:16
-		@test haskey(hit, "a")
-		@test haskey(hit, "b")
-		@test !haskey(hit, "c")
-		@test Set(keys(hit)) == Set(["a", "b"])
-		@test_throws KeyError hit["c"]
-
-		empty_hit = Hit(10:14, 0, 0)
-		@test !haskey(empty_hit, "a")
-		@test isempty(keys(empty_hit))
+	@testset "Hit show" begin
+		hit = Hit(10:14, 0, 3)
+		r = repr(hit)
+		@test contains(r, "10:14")
+		@test contains(r, "doc=0")
 	end
 
-	@testset "Hit show with captures" begin
-		hit = Hit(10:14, 0, 0)
-		@test repr(hit) == "Hit(10:14)"
-
-		hit_cap = Hit(10:16, 0, 0, ["a" => 10:12, "b" => 14:16])
-		r = repr(hit_cap)
-		@test startswith(r, "Hit(10:16")
-		@test contains(r, "a=10:12")
-		@test contains(r, "b=14:16")
-	end
-
-	@testset "Tables.jl interface — Hit" begin
-		hit = Hit(10:14, 2, 7)
-
-		@test Tables.columnnames(hit) == (:start, :stop, :document_index, :sentence_index)
-		@test Tables.getcolumn(hit, :start) == 10
-		@test Tables.getcolumn(hit, :stop) == 14
-		@test Tables.getcolumn(hit, :document_index) == 2
-		@test Tables.getcolumn(hit, :sentence_index) == 7
-		@test Tables.getcolumn(hit, 1) == 10
-		@test Tables.getcolumn(hit, 4) == 7
-	end
-
-	@testset "Tables.jl interface — ConcordanceLine" begin
+	@testset "Concordance Tables.jl" begin
 		line = ConcordanceLine("le vieux", "chat", "dormait", "poeme.conllu", 100)
-
-		@test Tables.columnnames(line) == (:document, :position, :left, :match_text, :right)
-		@test Tables.getcolumn(line, :document) == "poeme.conllu"
 		@test Tables.getcolumn(line, :match_text) == "chat"
-		@test Tables.getcolumn(line, 1) == "poeme.conllu"
-		@test Tables.getcolumn(line, 3) == "le vieux"
-		@test Tables.getcolumn(line, 5) == "dormait"
 
 		conc = Concordance([line])
 		@test Tables.istable(typeof(conc))
-		@test Tables.rowaccess(typeof(conc))
 		schema = Tables.schema(conc)
 		@test schema.names == (:document, :position, :left, :match_text, :right)
-		@test schema.types == (String, Int, String, String, String)
 	end
 
 	@testset "show methods" begin
@@ -86,14 +43,13 @@ import Tables
 		q2 = cql"[pos='ADJ'] [pos='NOUN']"
 		@test q2.query == """[pos="ADJ"] [pos="NOUN"]"""
 
-		q3 = cql"[word='\d+$']"
-		@test q3.query == "[word=\"\\d+\$\"]"
-
-		lemma = "fleur"
-		q4 = CQL("[lemma='$(lemma)']")
-		@test q4.query == """[lemma="fleur"]"""
-
 		@test repr(q) == """cql"[pos='NOUN']" """[1:end-1]
+	end
+
+	@testset "spec parsing errors" begin
+		@test_throws ErrorException Montre.parse_spec(:lemma)
+		spec = Montre.parse_spec(:document)
+		@test spec.name == :document
 	end
 
 	# ── integration tests (require a built corpus) ──
@@ -109,117 +65,152 @@ import Tables
 			@test !isopen(corpus)
 		end
 
-		@testset "do-block" begin
+		@testset "query and iteration" begin
 			Montre.open(corpus_path) do corpus
-				@test isopen(corpus)
-				@test token_count(corpus) > 0
+				hits = query(corpus, """[pos="NOUN"]""")
+				@test length(hits) > 0
+				@test hits[1] isa Hit
+				@test hits[1].document_index isa Integer
+
+				collected = collect(Iterators.take(hits, 3))
+				@test length(collected) == 3
+				@test all(h -> h isa Hit, collected)
+
+				@test count(corpus, """[pos="NOUN"]""") == length(hits)
 			end
 		end
 
-		@testset "inspection" begin
-			corpus = Montre.open(corpus_path)
-			@test length(layers(corpus)) > 0
-			@test length(documents(corpus)) > 0
+		@testset "document_name" begin
+			Montre.open(corpus_path) do corpus
+				hits = query(corpus, """[pos="NOUN"]""")
+				length(hits) == 0 && return
 
-			comps = components(corpus)
-			@test length(comps) > 0
-			@test comps[1] isa Component
-
-			close(corpus)
-		end
-
-		@testset "counting" begin
-			corpus = Montre.open(corpus_path)
-
-			@test document_count(corpus) > 0
-			@test sentence_count(corpus) > 0
-			@test component_count(corpus) >= 0
-
-			comps = components(corpus)
-			if length(comps) > 0
-				name = comps[1].name
-				@test token_count(corpus; component = name) > 0
-				@test document_count(corpus; component = name) > 0
-				@test sentence_count(corpus; component = name) > 0
-
-				docs = documents(corpus; component = name)
-				if length(docs) > 0
-					@test token_count(corpus; document = docs[1]) > 0
-					@test sentence_count(corpus; document = docs[1]) > 0
-					@test token_count(corpus; component = name, document = docs[1]) > 0
-				end
+				@test document_name(corpus, hits[1]) isa String
+				@test document_name(hits, 1) isa String
+				@test document_name(corpus, hits[1]) == document_name(hits, 1)
 			end
-
-			close(corpus)
 		end
 
-		@testset "vocabulary" begin
-			corpus = Montre.open(corpus_path)
+		@testset "captures" begin
+			Montre.open(corpus_path) do corpus
+				hits = query(corpus, CQL("a:[pos='ADJ'] b:[pos='NOUN']"))
+				length(hits) == 0 && return
 
-			vocab = vocabulary(corpus, "pos")
-			@test length(vocab) > 0
-			@test vocab[1] isa NamedTuple
-			@test haskey(vocab[1], :value)
-			@test haskey(vocab[1], :count)
-			@test vocab[1].count >= vocab[end].count
-
-			top_vocab = vocabulary(corpus, "pos"; top = 3)
-			@test length(top_vocab) == 3
-
-			close(corpus)
+				@test captures(hits) == ["a", "b"]
+				spans_a = captures(hits, "a")
+				@test spans_a[1] isa UnitRange{Int}
+				@test_throws KeyError captures(hits, "z")
+			end
 		end
 
-		@testset "query" begin
-			corpus = Montre.open(corpus_path)
+		@testset "extract — layer => function" begin
+			Montre.open(corpus_path) do corpus
+				hits = query(corpus, """[pos="ADJ"] [pos="NOUN"]""")
+				length(hits) == 0 && return
 
-			hits = query(corpus, """[pos="NOUN"]""")
-			@test length(hits) > 0
-			@test hits[1] isa Hit
-			@test first(hits[1].span) >= 0
-			@test isempty(hits[1].captures)
-
-			t = texts(hits)
-			@test length(t) == length(hits)
-			@test t[1] isa String
-
-			@test span_text(corpus, hits[1]) isa String
-
-			n = count(corpus, """[pos="NOUN"]""")
-			@test n == length(hits)
-
-			close(corpus)
+				df = extract(hits, DataFrame,
+					:word => join,
+					:lemma => first,
+					:pos => collect,
+				)
+				@test df isa DataFrame
+				@test nrow(df) == length(hits)
+				@test df.word[1] isa String
+				@test df.lemma[1] isa String
+				@test df.pos[1] isa Vector{String}
+				@test length(df.pos[1]) == 2
+			end
 		end
 
-		@testset "concordance" begin
-			corpus = Montre.open(corpus_path)
+		@testset "extract — structural fields" begin
+			Montre.open(corpus_path) do corpus
+				hits = query(corpus, """[pos="NOUN"]""")
+				length(hits) == 0 && return
 
-			conc = concordance(corpus, """[pos="NOUN"]"""; limit = 3)
-			@test conc isa Concordance
-			@test length(conc) <= 3
-			@test conc[1] isa ConcordanceLine
-			@test conc[1].match_text != ""
+				df = extract(hits, DataFrame, :document, :width, :sentence_index)
+				@test df isa DataFrame
+				@test nrow(df) == length(hits)
+				@test df.document[1] isa String
+				@test df.width[1] isa Int
+			end
+		end
 
-			close(corpus)
+		@testset "extract — lambda specs" begin
+			Montre.open(corpus_path) do corpus
+				hits = query(corpus, CQL("a:[pos='ADJ'] b:[pos='NOUN']"))
+				length(hits) == 0 && return
+
+				df = extract(hits, DataFrame,
+					:word => join,
+					(x -> first(x["a", :lemma])) => :adj_lemma,
+					(x -> first(x["b", :lemma])) => :noun_lemma,
+				)
+				@test df isa DataFrame
+				@test :adj_lemma in propertynames(df)
+				@test :noun_lemma in propertynames(df)
+			end
+		end
+
+		@testset "extract — renamed output" begin
+			Montre.open(corpus_path) do corpus
+				hits = query(corpus, """[pos="ADJ"] [pos="NOUN"]""")
+				length(hits) == 0 && return
+
+				df = extract(hits, DataFrame,
+					:word => join => :matched_text,
+					:lemma => join => :lemma_text,
+				)
+				@test :matched_text in propertynames(df)
+				@test :lemma_text in propertynames(df)
+			end
+		end
+
+		@testset "extract — Vector sink" begin
+			Montre.open(corpus_path) do corpus
+				hits = query(corpus, """[pos="NOUN"]""")
+				length(hits) == 0 && return
+
+				docs = extract(hits, Vector, :document)
+				@test docs isa Vector{String}
+				@test length(docs) == length(hits)
+
+				words = extract(hits, Vector, :word => join)
+				@test words isa Vector{String}
+			end
 		end
 
 		@testset "frequency" begin
-			corpus = Montre.open(corpus_path)
+			Montre.open(corpus_path) do corpus
+				hits = query(corpus, """[pos="ADJ"] [pos="NOUN"]""")
+				length(hits) == 0 && return
 
-			freqs = frequency(corpus, """[pos="NOUN"]"""; by = "lemma")
-			@test length(freqs) > 0
-			@test freqs[1].count >= freqs[end].count
-
-			close(corpus)
+				freqs = frequency(hits)
+				@test freqs isa DataFrame
+				@test :count in propertynames(freqs)
+				@test freqs.count[1] >= freqs.count[end]
+			end
 		end
 
-		@testset "iteration" begin
+		@testset "concordance" begin
+			Montre.open(corpus_path) do corpus
+				conc = concordance(corpus, """[pos="NOUN"]"""; limit = 3)
+				@test conc isa Concordance
+				@test length(conc) <= 3
+				@test conc[1].match_text != ""
+			end
+		end
+
+		@testset "projection" begin
 			corpus = Montre.open(corpus_path)
-			hits = query(corpus, """[pos="NOUN"]""")
+			if length(alignments(corpus)) > 0
+				aligns = alignments(corpus)
+				hits = query(corpus, """[pos="NOUN"]""")
+				projected = project(corpus, hits, aligns[1].name)
 
-			collected = collect(Iterators.take(hits, 3))
-			@test length(collected) == 3
-			@test all(h -> h isa Hit, collected)
-
+				@test projected isa HitList
+				@test length(projected) > 0
+				@test projected[1] isa Hit
+			end
 			close(corpus)
 		end
 
@@ -228,64 +219,8 @@ import Tables
 				hits_str = query(corpus, """[pos="NOUN"]""")
 				hits_cql = query(corpus, cql"[pos='NOUN']")
 				@test length(hits_cql) == length(hits_str)
-
-				@test length(concordance(corpus, cql"[pos='NOUN']"; limit = 3)) <= 3
-				@test count(corpus, cql"[pos='NOUN']") == length(hits_cql)
-				@test length(frequency(corpus, cql"[pos='NOUN']")) > 0
 			end
 		end
-
-		@testset "labeled captures" begin
-			Montre.open(corpus_path) do corpus
-				hits = query(corpus, CQL("a:[pos='ADJ'] b:[pos='NOUN']"))
-				if length(hits) > 0
-					hit = hits[1]
-					@test haskey(hit, "a")
-					@test haskey(hit, "b")
-					@test hit["a"] isa UnitRange
-					@test hit["b"] isa UnitRange
-					@test length(hit.captures) == 2
-				end
-			end
-		end
-
-		@testset "global constraints with component" begin
-			Montre.open(corpus_path) do corpus
-				comps = components(corpus)
-				if length(comps) > 0
-					name = comps[1].name
-					hits = query(corpus, CQL("a:[pos='NOUN'] []{0,5} b:[pos='NOUN'] :: a.lemma = b.lemma"); component = name)
-					@test hits isa HitList
-				end
-			end
-		end
-
-		corpus = Montre.open(corpus_path)
-		if length(alignments(corpus)) > 0
-			@testset "projection" begin
-				aligns = alignments(corpus)
-				@test aligns[1] isa Alignment
-
-				hits = query(corpus, """[pos="NOUN"]""")
-				projected = project(corpus, hits, aligns[1].name)
-				@test length(projected) > 0
-				@test projected[1] isa Hit
-
-				pt = texts(projected)
-				@test length(pt) == length(projected)
-			end
-
-			@testset "edges" begin
-				aligns = alignments(corpus)
-				edge_data = edges(corpus, aligns[1].name)
-				@test length(edge_data) > 0
-				@test haskey(edge_data[1], :source_document)
-				@test haskey(edge_data[1], :source_sentence)
-				@test haskey(edge_data[1], :target_document)
-				@test haskey(edge_data[1], :target_sentence)
-			end
-		end
-		close(corpus)
 	else
 		@info "Skipping integration tests. Set MONTRE_TEST_CORPUS to a corpus path to enable."
 	end

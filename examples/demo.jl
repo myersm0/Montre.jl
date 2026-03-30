@@ -9,8 +9,9 @@
 
 using Montre
 using UniversalDependencies
+using LazyArtifacts
 
-corpus_path = expanduser("~/path/to/your-corpus")
+corpus_path = artifact"maupassant_corpus"
 corpus = Montre.open(corpus_path)
 
 # ── corpus overview ──
@@ -45,6 +46,7 @@ vocabulary(corpus, :lemma; top = 20)
 
 # ── basic querying ──
 
+# TODO: should be able to do indexing and iteration on HitList
 hits = query(corpus, cql"[pos='NOUN']")
 concordance(hits; limit = 10)
 
@@ -54,10 +56,8 @@ frequency(pairs; by = :word)
 # ── component-filtered queries ──
 
 fr_nouns = frequency(corpus, cql"[pos='NOUN']"; by = :lemma, component = "maupassant-fr")
-first(fr_nouns, 20)
 
 en_nouns = frequency(corpus, cql"[pos='NOUN']"; by = :lemma, component = "maupassant-en")
-first(en_nouns, 20)
 
 count(corpus, cql"[pos='VERB']"; component = "maupassant-fr")
 
@@ -80,9 +80,6 @@ UD.form(nodes[1])
 UD.upos(nodes[1])
 UD.feats(nodes[1])
 
-# render a hit with dependency arcs
-render(ArcStyle(), nodes)
-
 # render as a CoNLL-U table
 render(TableStyle(), nodes)
 
@@ -94,10 +91,16 @@ concordance(repeated; limit = 10)
 
 # captures
 captures(repeated)
+# TODO: this returns integer ranges which are not useful to user:
 captures(repeated, "a")
 
 # ── alignment projection ──
 
+# TODO: this returns a ProjectionResult, which doesn't have any getindex methods.
+# Also consider unifying HitList and ProjectionResult — they share the same interaction pattern 
+# (indexing, iteration, column, captures, frequency, collocates, concordance). 
+# Options: common abstract supertype, or just store diagnostics as optional fields on HitList 
+# (projection results are hits with extra metadata)
 result = project(ame, "labse")
 result
 result.projected
