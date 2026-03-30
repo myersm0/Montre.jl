@@ -1,4 +1,52 @@
 
+## HitRow (per-hit accessor for lambda specs)
+
+struct HitRow
+	corpus::Corpus
+	hit_start::Int
+	hit_end::Int
+	document::String
+	sentence_index::Int
+	capture_starts::Dict{String, Int}
+	capture_ends::Dict{String, Int}
+end
+
+function HitRow(hitlist::HitList, i::Int)
+	store = hitlist.capture_store
+	cap_starts = Dict{String, Int}()
+	cap_ends = Dict{String, Int}()
+	for name in store.names
+		cap_starts[name] = store.starts[name][i]
+		cap_ends[name] = store.ends[name][i]
+	end
+	HitRow(
+		hitlist.corpus,
+		hitlist.starts[i], hitlist.ends[i],
+		document_name(hitlist, i),
+		hitlist.sentence_indices[i],
+		cap_starts, cap_ends,
+	)
+end
+
+function Base.getindex(row::HitRow, layer::Layer)
+	name = String(layer)
+	name == "document" && return row.document
+	name == "width" && return row.hit_end - row.hit_start
+	name == "span" && return row.hit_start:row.hit_end - 1
+	name == "start" && return row.hit_start
+	name == "stop" && return row.hit_end - 1
+	name == "sentence_index" && return row.sentence_index
+	corpus_token_annotations(row.corpus.pointer, row.hit_start, row.hit_end, name)
+end
+
+function Base.getindex(row::HitRow, capture_name::AbstractString, layer::Layer)
+	haskey(row.capture_starts, capture_name) || throw(KeyError(capture_name))
+	cs = row.capture_starts[capture_name]
+	ce = row.capture_ends[capture_name]
+	corpus_token_annotations(row.corpus.pointer, cs, ce, String(layer))
+end
+
+
 ## spec parsing
 
 struct ExtractSpec
@@ -93,3 +141,4 @@ function frequency(hitlist::HitList; by::Union{Pair, Symbol} = :word => join)
 		x -> sort(x, :count; rev = true)
 end
 
+frequency(corpus::Corpus, cql::CQL; kwargs...) = frequency(query(corpus, cql.query); kwargs...)

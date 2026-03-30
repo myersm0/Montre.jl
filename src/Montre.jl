@@ -32,12 +32,15 @@ export token_count, document_count, sentence_count, component_count,
 	vocabulary, annotation, annotations, span_text
 
 include("query.jl")
-export query, tokens, captures, concordance, collocates, project
+export query, captures, project
 
-include("show.jl")
+include("concordance.jl")
+export tokens, concordance, collocates
 
 include("extract.jl")
 export extract, frequency
+
+include("show.jl")
 
 include("tables.jl")
 
