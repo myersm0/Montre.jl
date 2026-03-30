@@ -114,13 +114,13 @@ function document_range(corpus::Corpus, component_name::AbstractString)
 end
 
 function span_at(corpus::Corpus, layer::Layer, index::Integer)
-	result = corpus_span_at(corpus.pointer, _layer_name(layer), index)
+	result = corpus_span_at(corpus.pointer, String(layer), index)
 	result === nothing && error("Montre: invalid span layer or index")
 	return result
 end
 
 function span_containing(corpus::Corpus, layer::Layer, position::Integer)
-	corpus_span_containing(corpus.pointer, _layer_name(layer), position)
+	corpus_span_containing(corpus.pointer, String(layer), position)
 end
 
 function components(corpus::Corpus)
@@ -141,22 +141,22 @@ function span_layers(corpus::Corpus)
 end
 
 function vocabulary(corpus::Corpus, layer::Layer; top::Union{Integer, Nothing} = nothing)
-	values, counts = corpus_inverted_counts(corpus.pointer, _layer_name(layer))
+	values, counts = corpus_inverted_counts(corpus.pointer, String(layer))
 	entries = [(; value = v, count = c) for (v, c) in zip(values, counts)]
 	sort!(entries; by = e -> e.count, rev = true)
 	top === nothing ? entries : first(entries, min(top, length(entries)))
 end
 
 function annotation(corpus::Corpus, position::Integer, layer::Layer)
-	corpus_token_annotation(corpus.pointer, position, _layer_name(layer))
+	corpus_token_annotation(corpus.pointer, position, String(layer))
 end
 
 function annotations(corpus::Corpus, range::UnitRange, layer::Layer)
-	corpus_token_annotations(corpus.pointer, first(range), last(range) + 1, _layer_name(layer))
+	corpus_token_annotations(corpus.pointer, first(range), last(range) + 1, String(layer))
 end
 
 function span_text(corpus::Corpus, start::Integer, stop::Integer; layer::Layer = :word)
-	corpus_span_text(corpus.pointer, start, stop, _layer_name(layer))
+	corpus_span_text(corpus.pointer, start, stop, String(layer))
 end
 
 function span_text(corpus::Corpus, range::UnitRange; layer::Layer = :word)

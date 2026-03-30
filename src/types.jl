@@ -1,9 +1,3 @@
-const _exiting = Ref(false)
-atexit(() -> _exiting[] = true)
-
-_layer_name(x::Symbol) = String(x)
-_layer_name(x::AbstractString) = String(x)
-
 const Layer = Union{Symbol, AbstractString}
 
 mutable struct Corpus
@@ -12,7 +6,7 @@ mutable struct Corpus
 	function Corpus(pointer::Ptr{Nothing})
 		corpus = new(pointer)
 		finalizer(corpus) do c
-			if !_exiting[] && c.pointer != C_NULL
+			if !exiting[] && c.pointer != C_NULL
 				corpus_close(c.pointer)
 				c.pointer = C_NULL
 			end
@@ -75,11 +69,8 @@ Base.isempty(store::CaptureStore) = isempty(store.names)
 
 # ---- HitList ----
 
-const _conllu_layers = ["word", "lemma", "pos", "xpos", "feats", "deprel"]
-
-function _corpus_conllu_layers(corpus::Corpus)
-	available = Set(layers(corpus))
-	filter(l -> l in available, _conllu_layers)
+function document_name_for_hit(hitlist, i::Int)
+	something(corpus_document_name(hitlist.corpus.pointer, hitlist.document_indices[i]), "?")
 end
 
 mutable struct HitList <: AbstractVector{Hit}
@@ -90,24 +81,15 @@ mutable struct HitList <: AbstractVector{Hit}
 	document_indices::Vector{Int}
 	sentence_indices::Vector{Int}
 	capture_store::CaptureStore
-	show_layers::Vector{String}
-	projected::Union{Int, Nothing}
-	unmapped::Union{Int, Nothing}
-	no_alignment::Union{Int, Nothing}
 
-	function HitList(
-		pointer, corpus, starts, ends, document_indices, sentence_indices,
-		capture_store, show_layers;
-		projected = nothing, unmapped = nothing, no_alignment = nothing,
-	)
+	function HitList(pointer, corpus, starts, ends, document_indices, sentence_indices, capture_store)
 		hitlist = new(
 			pointer, corpus, starts, ends,
 			document_indices, sentence_indices,
-			capture_store, show_layers,
-			projected, unmapped, no_alignment,
+			capture_store,
 		)
 		finalizer(hitlist) do h
-			if !_exiting[] && h.pointer != C_NULL
+			if !exiting[] && h.pointer != C_NULL
 				hitlist_free(h.pointer)
 				h.pointer = C_NULL
 			end
@@ -117,10 +99,6 @@ mutable struct HitList <: AbstractVector{Hit}
 end
 
 Base.size(hitlist::HitList) = (length(hitlist.starts),)
-
-function _document_name_cached(hitlist::HitList, i::Int)
-	something(corpus_document_name(hitlist.corpus.pointer, hitlist.document_indices[i]), "?")
-end
 
 function Base.getindex(hitlist::HitList, i::Int)
 	@boundscheck checkbounds(hitlist, i)
@@ -132,18 +110,14 @@ function Base.getindex(hitlist::HitList, i::Int)
 	end
 	Hit(
 		hitlist.starts[i]:hitlist.ends[i] - 1,
-		_document_name_cached(hitlist, i),
+		document_name_for_hit(hitlist, i),
 		hitlist.document_indices[i],
 		hitlist.sentence_indices[i],
 		caps,
 	)
 end
 
-is_projection(hitlist::HitList) = hitlist.projected !== nothing
-
 # ---- HitRow (accessor for lambda specs in extract) ----
-
-const _structural_fields = Set(["document", "width", "span", "start", "stop", "sentence_index"])
 
 struct HitRow
 	corpus::Corpus
@@ -166,14 +140,14 @@ function HitRow(hitlist::HitList, i::Int)
 	HitRow(
 		hitlist.corpus,
 		hitlist.starts[i], hitlist.ends[i],
-		_document_name_cached(hitlist, i),
+		document_name_for_hit(hitlist, i),
 		hitlist.sentence_indices[i],
 		cap_starts, cap_ends,
 	)
 end
 
 function Base.getindex(row::HitRow, layer::Layer)
-	name = _layer_name(layer)
+	name = String(layer)
 	name == "document" && return row.document
 	name == "width" && return row.hit_end - row.hit_start
 	name == "span" && return row.hit_start:row.hit_end - 1
@@ -187,8 +161,7 @@ function Base.getindex(row::HitRow, capture_name::AbstractString, layer::Layer)
 	haskey(row.capture_starts, capture_name) || throw(KeyError(capture_name))
 	cs = row.capture_starts[capture_name]
 	ce = row.capture_ends[capture_name]
-	name = _layer_name(layer)
-	corpus_token_annotations(row.corpus.pointer, cs, ce, name)
+	corpus_token_annotations(row.corpus.pointer, cs, ce, String(layer))
 end
 
 # ---- Concordance ----

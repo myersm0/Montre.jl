@@ -1,5 +1,8 @@
 module Montre
 
+using DataFrames
+using Tables
+using UniversalDependencies
 
 const deps_file = joinpath(@__DIR__, "..", "deps", "deps.jl")
 if isfile(deps_file)
@@ -11,9 +14,8 @@ else
 	)
 end
 
-using DataFrames
-using Tables
-using UniversalDependencies
+const exiting = Ref(false)
+atexit(() -> exiting[] = true)
 
 include("types.jl")
 export Corpus, HitList, Hit, Component, Alignment,
@@ -28,13 +30,13 @@ export token_count, document_count, sentence_count, component_count,
 	vocabulary, annotation, annotations, span_text
 
 include("query.jl")
-export query, tokens, captures, concordance, collocates, project, is_projection
+export query, tokens, captures, concordance, collocates, project
+
+include("show.jl")
 
 include("extract.jl")
 export extract, frequency
 
 include("tables.jl")
-
-include("show.jl")
 
 end

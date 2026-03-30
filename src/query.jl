@@ -1,6 +1,6 @@
 # ---- SoA construction ----
 
-function _build_capture_store(pointer::Ptr{Nothing}, n::Int)
+function build_capture_store(pointer::Ptr{Nothing}, n::Int)
 	n == 0 && return CaptureStore()
 	n_captures = Int(hit_capture_count(pointer, 0))
 	n_captures == 0 && return CaptureStore()
@@ -19,18 +19,14 @@ function _build_capture_store(pointer::Ptr{Nothing}, n::Int)
 	CaptureStore(names, starts, ends)
 end
 
-function _materialize_hitlist(pointer::Ptr{Nothing}, corpus::Corpus; kwargs...)
+function materialize_hitlist(pointer::Ptr{Nothing}, corpus::Corpus)
 	hitlist_populate_context(pointer, corpus.pointer)
 	starts = hitlist_starts(pointer)
 	ends = hitlist_ends(pointer)
 	document_indices = hitlist_document_indices(pointer)
 	sentence_indices = hitlist_sentence_indices(pointer)
-	capture_store = _build_capture_store(pointer, length(starts))
-	show_layers = _corpus_conllu_layers(corpus)
-	HitList(
-		pointer, corpus, starts, ends, document_indices, sentence_indices,
-		capture_store, show_layers; kwargs...,
-	)
+	capture_store = build_capture_store(pointer, length(starts))
+	HitList(pointer, corpus, starts, ends, document_indices, sentence_indices, capture_store)
 end
 
 # ---- query ----
@@ -41,7 +37,7 @@ function query(corpus::Corpus, cql::AbstractString; component::Union{AbstractStr
 	else
 		query_in_component(corpus.pointer, cql, component)
 	end
-	_materialize_hitlist(pointer, corpus)
+	materialize_hitlist(pointer, corpus)
 end
 
 function Base.count(corpus::Corpus, cql::AbstractString; component::Union{AbstractString, Nothing} = nothing)
@@ -54,12 +50,16 @@ end
 
 # ---- token construction ----
 
-function _fetch_layer(corpus_ptr::Ptr{Nothing}, start::Int, stop::Int, layer::String)
+function conllu_layers(corpus::Corpus)
+	filter(l -> !startswith(l, "feats."), layers(corpus))
+end
+
+function fetch_layer(corpus_ptr::Ptr{Nothing}, start::Int, stop::Int, layer::String)
 	vals = corpus_token_annotations(corpus_ptr, start, stop, layer)
 	isempty(vals) ? nothing : vals
 end
 
-function _build_nodes(hitlist::HitList, i::Integer)
+function build_nodes(hitlist::HitList, i::Integer)
 	corpus = hitlist.corpus
 	hit_start = hitlist.starts[i]
 	hit_end = hitlist.ends[i]
@@ -67,30 +67,30 @@ function _build_nodes(hitlist::HitList, i::Integer)
 	n == 0 && return UD.Node[]
 
 	ptr = corpus.pointer
-	available = Set(hitlist.show_layers)
+	available = Set(conllu_layers(corpus))
 
-	words = "word" in available ? _fetch_layer(ptr, hit_start, hit_end, "word") : nothing
-	lemmas = "lemma" in available ? _fetch_layer(ptr, hit_start, hit_end, "lemma") : nothing
-	pos_tags = "pos" in available ? _fetch_layer(ptr, hit_start, hit_end, "pos") : nothing
-	xpos_tags = "xpos" in available ? _fetch_layer(ptr, hit_start, hit_end, "xpos") : nothing
-	feats_strs = "feats" in available ? _fetch_layer(ptr, hit_start, hit_end, "feats") : nothing
-	heads = "head" in available ? _fetch_layer(ptr, hit_start, hit_end, "head") : nothing
-	deprels = "deprel" in available ? _fetch_layer(ptr, hit_start, hit_end, "deprel") : nothing
+	words = "word" in available ? fetch_layer(ptr, hit_start, hit_end, "word") : nothing
+	lemmas = "lemma" in available ? fetch_layer(ptr, hit_start, hit_end, "lemma") : nothing
+	pos_tags = "pos" in available ? fetch_layer(ptr, hit_start, hit_end, "pos") : nothing
+	xpos_tags = "xpos" in available ? fetch_layer(ptr, hit_start, hit_end, "xpos") : nothing
+	feats_strs = "feats" in available ? fetch_layer(ptr, hit_start, hit_end, "feats") : nothing
+	heads = "head" in available ? fetch_layer(ptr, hit_start, hit_end, "head") : nothing
+	deprels = "deprel" in available ? fetch_layer(ptr, hit_start, hit_end, "deprel") : nothing
 
-	_val(v, j) = v !== nothing && j <= length(v) ? v[j] : "_"
+	val(v, j) = v !== nothing && j <= length(v) ? v[j] : "_"
 
 	[
 		UD.Node(
 			id = j,
-			form = _val(words, j),
-			lemma = _val(lemmas, j),
-			upos = _val(pos_tags, j),
-			xpos = _val(xpos_tags, j),
-			feats = parse(UD.Features, _val(feats_strs, j)),
-			head = let s = _val(heads, j)
+			form = val(words, j),
+			lemma = val(lemmas, j),
+			upos = val(pos_tags, j),
+			xpos = val(xpos_tags, j),
+			feats = parse(UD.Features, val(feats_strs, j)),
+			head = let s = val(heads, j)
 				something(tryparse(Int, s), 0)
 			end,
-			deprel = _val(deprels, j),
+			deprel = val(deprels, j),
 		)
 		for j in 1:n
 	]
@@ -98,11 +98,11 @@ end
 
 function tokens(hitlist::HitList, i::Integer)
 	1 <= i <= length(hitlist) || throw(BoundsError(hitlist, i))
-	_build_nodes(hitlist, i)
+	build_nodes(hitlist, i)
 end
 
 function tokens(hitlist::HitList)
-	[_build_nodes(hitlist, i) for i in 1:length(hitlist)]
+	[build_nodes(hitlist, i) for i in 1:length(hitlist)]
 end
 
 # ---- captures at hitlist level ----
@@ -121,12 +121,7 @@ end
 
 function project(corpus::Corpus, hitlist::HitList, alignment::AbstractString)
 	raw = project(corpus.pointer, hitlist.pointer, alignment)
-	_materialize_hitlist(
-		raw.pointer, corpus;
-		projected = raw.projected,
-		unmapped = raw.unmapped,
-		no_alignment = raw.no_alignment,
-	)
+	materialize_hitlist(raw.pointer, corpus)
 end
 
 project(hitlist::HitList, alignment::AbstractString) = project(hitlist.corpus, hitlist, alignment)
@@ -144,7 +139,7 @@ function concordance(
 	layer::Layer = :word,
 	limit::Integer = 20,
 )
-	layer_str = _layer_name(layer)
+	layer_str = String(layer)
 	total = min(length(hitlist), limit)
 	total_tokens = token_count(corpus)
 
@@ -187,7 +182,7 @@ function collocates(
 	layer::Layer = :lemma,
 	positional::Bool = false,
 )
-	raw = context_tokens(hitlist.pointer, corpus.pointer, window, _layer_name(layer))
+	raw = context_tokens(hitlist.pointer, corpus.pointer, window, String(layer))
 
 	if positional
 		counts = Dict{Tuple{String, Int}, Int}()
@@ -221,66 +216,3 @@ concordance(corpus::Corpus, cql::CQL; kwargs...) = concordance(corpus, cql.query
 frequency(corpus::Corpus, cql::CQL; kwargs...) = frequency(query(corpus, cql.query); kwargs...)
 collocates(corpus::Corpus, cql::CQL; kwargs...) = collocates(corpus, cql.query; kwargs...)
 project(corpus::Corpus, cql::CQL, alignment::AbstractString) = project(corpus, cql.query, alignment)
-
-# ---- display ----
-
-function _capture_margin_labels(hitlist::HitList, i::Integer)
-	store = hitlist.capture_store
-	isempty(store) && return Dict{Int, String}()
-	hit_start = hitlist.starts[i]
-	labels = Dict{Int, String}()
-	for name in store.names
-		cs = store.starts[name][i]
-		ce = store.ends[name][i]
-		for pos in cs:ce - 1
-			local_idx = pos - hit_start + 1
-			existing = get(labels, local_idx, "")
-			labels[local_idx] = existing == "" ? name : existing * "," * name
-		end
-	end
-	return labels
-end
-
-function _capture_highlights(hitlist::HitList, i::Integer)
-	store = hitlist.capture_store
-	isempty(store) && return UnitRange{Int}[]
-	hit_start = hitlist.starts[i]
-	[
-		let
-			local_start = store.starts[name][i] - hit_start + 1
-			local_end = store.ends[name][i] - hit_start
-			local_start:local_end
-		end
-		for name in store.names
-	]
-end
-
-function _render_hit(io::IO, hitlist::HitList, i::Integer)
-	hit = hitlist[i]
-	printstyled(io, "Hit $i", bold = true)
-	printstyled(io, " ($(hit.document))", color = :light_black)
-	println(io)
-
-	nodes = _build_nodes(hitlist, i)
-	margin_labels = _capture_margin_labels(hitlist, i)
-	highlights = _capture_highlights(hitlist, i)
-
-	kw = Dict{Symbol, Any}()
-	isempty(margin_labels) || (kw[:margin_labels] = margin_labels)
-#	isempty(highlights) || (kw[:highlights] = highlights)
-	render(CompactStyle(), io, nodes; kw...)
-end
-
-function _truncate(s::AbstractString, width::Int)
-	textwidth(s) <= width && return s
-	chars = collect(s)
-	w = 0
-	for (i, c) in enumerate(chars)
-		w += textwidth(c)
-		if w > width - 1
-			return String(chars[1:i - 1]) * "…"
-		end
-	end
-	return s
-end
-

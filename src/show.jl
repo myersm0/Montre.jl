@@ -39,7 +39,7 @@ end
 
 # ---- HitList ----
 
-function _capture_margin_labels(hitlist::HitList, i::Integer)
+function capture_margin_labels(hitlist::HitList, i::Integer)
 	store = hitlist.capture_store
 	isempty(store) && return Dict{Int, String}()
 	hit_start = hitlist.starts[i]
@@ -56,7 +56,7 @@ function _capture_margin_labels(hitlist::HitList, i::Integer)
 	return labels
 end
 
-function _capture_highlights(hitlist::HitList, i::Integer)
+function capture_highlights(hitlist::HitList, i::Integer)
 	store = hitlist.capture_store
 	isempty(store) && return UnitRange{Int}[]
 	hit_start = hitlist.starts[i]
@@ -70,19 +70,18 @@ function _capture_highlights(hitlist::HitList, i::Integer)
 	]
 end
 
-function _render_hit(io::IO, hitlist::HitList, i::Integer)
+function render_hit(io::IO, hitlist::HitList, i::Integer)
 	hit = hitlist[i]
 	printstyled(io, "Hit $i", bold = true)
 	printstyled(io, " ($(hit.document))", color = :light_black)
 	println(io)
 
-	nodes = _build_nodes(hitlist, i)
-	margin_labels = _capture_margin_labels(hitlist, i)
-	highlights = _capture_highlights(hitlist, i)
+	nodes = build_nodes(hitlist, i)
+	margin_labels = capture_margin_labels(hitlist, i)
+	highlights = capture_highlights(hitlist, i)
 
 	kw = Dict{Symbol, Any}()
 	isempty(margin_labels) || (kw[:margin_labels] = margin_labels)
-#	isempty(highlights) || (kw[:highlights] = highlights)
 	render(CompactStyle(), io, nodes; kw...)
 end
 
@@ -91,16 +90,13 @@ function Base.show(io::IO, ::MIME"text/plain", hitlist::HitList)
 	n_docs = length(unique(hitlist.document_indices))
 	printstyled(io, "$(n) hits", bold = true)
 	print(io, " across $(n_docs) documents")
-	if is_projection(hitlist)
-		print(io, " ($(hitlist.projected) projected, $(hitlist.unmapped) unmapped, $(hitlist.no_alignment) unaligned)")
-	end
 
 	n == 0 && return
 
 	display_count = min(n, 5)
 	for i in 1:display_count
 		println(io)
-		_render_hit(io, hitlist, i)
+		render_hit(io, hitlist, i)
 	end
 
 	if n > display_count
@@ -127,7 +123,7 @@ function Base.show(io::IO, line::ConcordanceLine)
 	print(io, "  ", line.right)
 end
 
-function _truncate(s::AbstractString, width::Int)
+function truncate_text(s::AbstractString, width::Int)
 	textwidth(s) <= width && return s
 	chars = collect(s)
 	w = 0
@@ -156,10 +152,10 @@ function Base.show(io::IO, ::MIME"text/plain", conc::Concordance)
 
 	println(io, "Concordance ($(n) lines)")
 	for line in lines
-		doc = _truncate(line.document, doc_width)
-		left = _truncate(line.left, side_width)
-		match = _truncate(line.match_text, match_width)
-		right = _truncate(line.right, side_width)
+		doc = truncate_text(line.document, doc_width)
+		left = truncate_text(line.left, side_width)
+		match = truncate_text(line.match_text, match_width)
+		right = truncate_text(line.right, side_width)
 
 		printstyled(io, rpad(doc, doc_width), color = :light_black)
 		print(io, " ", lpad(left, side_width), " ")

@@ -7,42 +7,40 @@ struct ExtractSpec
 	func::Function
 end
 
-function _is_structural(name::Symbol)
-	String(name) in _structural_fields
-end
+const structural_fields = Set(["document", "width", "span", "start", "stop", "sentence_index"])
 
-function _parse_spec(spec::Symbol)
-	_is_structural(spec) || error(
+function parse_spec(spec::Symbol)
+	String(spec) in structural_fields || error(
 		"bare :$spec is ambiguous for annotation layers — " *
 		"specify a reduction, e.g. :$spec => join or :$spec => collect"
 	)
 	ExtractSpec(spec, x -> x[spec])
 end
 
-function _parse_spec(spec::Pair{Symbol, <:Function})
+function parse_spec(spec::Pair{Symbol, <:Function})
 	layer, f = spec
 	ExtractSpec(layer, x -> f(x[layer]))
 end
 
-function _parse_spec(spec::Pair{Pair{Symbol, <:Function}, Symbol})
+function parse_spec(spec::Pair{Pair{Symbol, <:Function}, Symbol})
 	(layer, f), name = spec
 	ExtractSpec(name, x -> f(x[layer]))
 end
 
-function _parse_spec(spec::Pair{<:Function, Symbol})
+function parse_spec(spec::Pair{<:Function, Symbol})
 	f, name = spec
 	ExtractSpec(name, f)
 end
 
-function _parse_specs(specs)
+function parse_specs(specs)
 	isempty(specs) && error("extract requires at least one column spec")
-	[_parse_spec(s) for s in specs]
+	[parse_spec(s) for s in specs]
 end
 
 # ---- extract ----
 
 function extract(hitlist::HitList, ::Type{DataFrame}, specs...)
-	parsed = _parse_specs(specs)
+	parsed = parse_specs(specs)
 	n = length(hitlist)
 	columns = Dict{Symbol, Vector}()
 	for s in parsed
@@ -58,24 +56,24 @@ function extract(hitlist::HitList, ::Type{DataFrame}, specs...)
 
 	typed = Dict{Symbol, Vector}()
 	for (name, col) in columns
-		typed[name] = _typed_vector(col)
+		typed[name] = typed_vector(col)
 	end
 
 	DataFrame(typed; copycols = false)[:, [s.name for s in parsed]]
 end
 
 function extract(hitlist::HitList, ::Type{Vector}, spec)
-	parsed = _parse_spec(spec)
+	parsed = parse_spec(spec)
 	n = length(hitlist)
 	result = Vector{Any}(undef, n)
 	for i in 1:n
 		row = HitRow(hitlist, i)
 		result[i] = parsed.func(row)
 	end
-	_typed_vector(result)
+	typed_vector(result)
 end
 
-function _typed_vector(col::Vector{Any})
+function typed_vector(col::Vector{Any})
 	isempty(col) && return col
 	t = typeof(col[1])
 	if all(x -> typeof(x) === t, col)
