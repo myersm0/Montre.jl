@@ -58,8 +58,6 @@ function tokens(hitlist::HitList)
 end
 
 
-## concordance
-
 function concordance(
 		corpus::Corpus, hitlist::HitList;
 		context::Integer = 5, layer::Layer = :word, limit::Integer = 20
@@ -92,43 +90,56 @@ function concordance(
 	Concordance(lines)
 end
 
-function concordance(corpus::Corpus, cql::AbstractString; component = nothing, kwargs...)
+concordance(corpus::Corpus, cql::AbstractString; component = nothing, kwargs...) =
 	concordance(corpus, query(corpus, cql; component); kwargs...)
-end
 
-concordance(hitlist::HitList; kwargs...) = concordance(hitlist.corpus, hitlist; kwargs...)
-concordance(corpus::Corpus, cql::CQL; kwargs...) = concordance(corpus, cql.query; kwargs...)
+concordance(hitlist::HitList; kwargs...) = 
+	concordance(hitlist.corpus, hitlist; kwargs...)
+
+concordance(corpus::Corpus, cql::CQL; kwargs...) = 
+	concordance(corpus, cql.query; kwargs...)
 
 
-## collocates
-
-function collocates(
-		corpus::Corpus, hitlist::HitList;
-		window::Integer = 5, layer::Layer = :lemma, positional::Bool = false
-	)
+function collocates(corpus::Corpus, hitlist::HitList; window = 5, layer = :lemma)
 	raw = context_tokens(hitlist.pointer, corpus.pointer, window, String(layer))
-
-	if positional
-		counts = Dict{Tuple{String, Int}, Int}()
-		for (pos, tok) in zip(raw.positions, raw.tokens)
-			key = (tok, Int(pos))
-			counts[key] = get(counts, key, 0) + 1
-		end
-		result = [(; token, position, count) for ((token, position), count) in counts]
-		sort!(result; by = x -> -x.count)
-	else
-		counts = Dict{String, Int}()
-		for tok in raw.tokens
-			counts[tok] = get(counts, tok, 0) + 1
-		end
-		result = [(; token, count) for (token, count) in counts]
-		sort!(result; by = last, rev = true)
+	counts = Dict{Tuple{String, Int}, Int}()
+	for (pos, tok) in zip(raw.positions, raw.tokens)
+		key = (tok, Int(pos))
+		counts[key] = get(counts, key, 0) + 1
 	end
+	[(; token, position, count) for ((token, position), count) in counts]
 end
 
-function collocates(corpus::Corpus, cql::AbstractString; component = nothing, kwargs...)
+collocates(corpus::Corpus, cql::AbstractString; component = nothing, kwargs...) =
 	collocates(corpus, query(corpus, cql; component); kwargs...)
+
+collocates(hitlist::HitList; kwargs...) = 
+	collocates(hitlist.corpus, hitlist; kwargs...)
+
+collocates(corpus::Corpus, cql::CQL; kwargs...) = 
+	collocates(corpus, cql.query; kwargs...)
+
+
+function cooccurrences(corpus::Corpus, hitlist::HitList; window = 5, layer = :lemma)
+	raw = context_tokens(hitlist.pointer, corpus.pointer, window, String(layer))
+	counts = Dict{String, Int}()
+	for tok in raw.tokens
+		counts[tok] = get(counts, tok, 0) + 1
+	end
+	[(; token, count) for (token, count) in counts]
 end
 
-collocates(hitlist::HitList; kwargs...) = collocates(hitlist.corpus, hitlist; kwargs...)
-collocates(corpus::Corpus, cql::CQL; kwargs...) = collocates(corpus, cql.query; kwargs...)
+cooccurrences(corpus::Corpus, cql::AbstractString; component = nothing, kwargs...) =
+	cooccurrences(corpus, query(corpus, cql; component); kwargs...)
+
+cooccurrences(hitlist::HitList; kwargs...) = 
+	cooccurrences(hitlist.corpus, hitlist; kwargs...)
+
+cooccurrences(corpus::Corpus, cql::CQL; kwargs...) = 
+	collocates(corpus, cql.query; kwargs...)
+
+
+
+
+
+

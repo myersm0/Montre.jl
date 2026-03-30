@@ -201,11 +201,9 @@ end
 
 ## token access
 
-function vocabulary(corpus::Corpus, layer::Layer; top::Union{Integer, Nothing} = nothing)
-	values, counts = corpus_inverted_counts(corpus.pointer, String(layer))
-	entries = [(; value = v, count = c) for (v, c) in zip(values, counts)]
-	sort!(entries; by = e -> e.count, rev = true)
-	top === nothing ? entries : first(entries, min(top, length(entries)))
+function vocabulary(corpus::Corpus, layer::Layer)
+	vals = corpus_inverted_values(corpus.pointer, String(layer))
+	sort(vals)
 end
 
 function annotation(corpus::Corpus, position::Integer, layer::Layer)

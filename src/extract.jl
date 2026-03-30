@@ -85,12 +85,18 @@ end
 
 ## frequency
 
-function frequency(hitlist::HitList; by::Union{Pair, Symbol} = :word => join)
-	spec = by isa Symbol ? (by => join) : by
-	df = extract(hitlist, DataFrame, spec)
-	col_name = first(names(df))
-	combine(groupby(df, col_name), nrow => :count) |>
-		x -> sort(x, :count; rev = true)
+function frequency(hitlist::HitList; by::Layer = :word)
+	layer_str = String(by)
+	counts = Dict{String, Int}()
+	for i in 1:length(hitlist)
+		text = corpus_span_text(
+			hitlist.corpus.pointer,
+			hitlist.starts[i], hitlist.ends[i],
+			layer_str,
+		)
+		key = something(text, "")
+		counts[key] = get(counts, key, 0) + 1
+	end
+	[(; value = k, count = v) for (k, v) in counts]
 end
 
-frequency(corpus::Corpus, cql::CQL; kwargs...) = frequency(query(corpus, cql.query); kwargs...)
