@@ -26,15 +26,7 @@ end
 # ---- Hit ----
 
 function Base.show(io::IO, hit::Hit)
-	print(io, "Hit($(hit.document)")
-	if !isempty(hit.captures)
-		for (name, span) in hit.captures
-			print(io, ", $name=$(first(span)):$(last(span))")
-		end
-	else
-		print(io, ", $(first(hit.span)):$(last(hit.span))")
-	end
-	print(io, ")")
+	print(io, "Hit($(first(hit.span)):$(last(hit.span)), doc=$(hit.document_index))")
 end
 
 # ---- HitList ----
@@ -71,9 +63,9 @@ function capture_highlights(hitlist::HitList, i::Integer)
 end
 
 function render_hit(io::IO, hitlist::HitList, i::Integer)
-	hit = hitlist[i]
+	doc = document_name(hitlist, i)
 	printstyled(io, "Hit $i", bold = true)
-	printstyled(io, " ($(hit.document))", color = :light_black)
+	printstyled(io, " ($(doc))", color = :light_black)
 	println(io)
 
 	nodes = build_nodes(hitlist, i)

@@ -35,26 +35,9 @@ end
 
 struct Hit
 	span::UnitRange{Int}
-	document::String
 	document_index::Int
 	sentence_index::Int
-	captures::Vector{Pair{String, UnitRange{Int}}}
 end
-
-function Hit(span::UnitRange{Int}, document::String, document_index::Int, sentence_index::Int)
-	Hit(span, document, document_index, sentence_index, Pair{String, UnitRange{Int}}[])
-end
-
-Base.haskey(hit::Hit, name::AbstractString) = any(p -> p.first == name, hit.captures)
-
-function Base.getindex(hit::Hit, name::AbstractString)
-	for p in hit.captures
-		p.first == name && return p.second
-	end
-	throw(KeyError(name))
-end
-
-Base.keys(hit::Hit) = [p.first for p in hit.captures]
 
 # ---- CaptureStore (internal SoA) ----
 
@@ -68,10 +51,6 @@ CaptureStore() = CaptureStore(String[], Dict{String, Vector{Int}}(), Dict{String
 Base.isempty(store::CaptureStore) = isempty(store.names)
 
 # ---- HitList ----
-
-function document_name_for_hit(hitlist, i::Int)
-	something(corpus_document_name(hitlist.corpus.pointer, hitlist.document_indices[i]), "?")
-end
 
 mutable struct HitList <: AbstractVector{Hit}
 	pointer::Ptr{Nothing}
@@ -102,18 +81,10 @@ Base.size(hitlist::HitList) = (length(hitlist.starts),)
 
 function Base.getindex(hitlist::HitList, i::Int)
 	@boundscheck checkbounds(hitlist, i)
-	store = hitlist.capture_store
-	caps = if isempty(store)
-		Pair{String, UnitRange{Int}}[]
-	else
-		[name => store.starts[name][i]:store.ends[name][i] - 1 for name in store.names]
-	end
 	Hit(
 		hitlist.starts[i]:hitlist.ends[i] - 1,
-		document_name_for_hit(hitlist, i),
 		hitlist.document_indices[i],
 		hitlist.sentence_indices[i],
-		caps,
 	)
 end
 
@@ -140,7 +111,7 @@ function HitRow(hitlist::HitList, i::Int)
 	HitRow(
 		hitlist.corpus,
 		hitlist.starts[i], hitlist.ends[i],
-		document_name_for_hit(hitlist, i),
+		document_name(hitlist, i),
 		hitlist.sentence_indices[i],
 		cap_starts, cap_ends,
 	)

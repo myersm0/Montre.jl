@@ -153,13 +153,13 @@ function concordance(
 		left_text = corpus_span_text(corpus.pointer, left_start, hit_start, layer_str)
 		match_text = corpus_span_text(corpus.pointer, hit_start, hit_end, layer_str)
 		right_text = corpus_span_text(corpus.pointer, hit_end, right_end, layer_str)
-		doc_name = corpus_document_name(corpus.pointer, hitlist.document_indices[i])
+		doc_name = document_name(hitlist, i)
 
 		ConcordanceLine(
 			something(left_text, ""),
 			something(match_text, ""),
 			something(right_text, ""),
-			something(doc_name, "?"),
+			doc_name,
 			hit_start,
 		)
 	end
