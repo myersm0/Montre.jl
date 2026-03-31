@@ -20,7 +20,7 @@ atexit(() -> exiting[] = true)
 const Layer = Union{Symbol, AbstractString}
 
 include("types.jl")
-export Corpus, HitList, Hit, Component, Alignment,
+export Corpus, HitList, Component, Alignment,
 	Concordance, ConcordanceLine, CQL, @cql_str
 
 include("ffi.jl")

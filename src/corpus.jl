@@ -123,10 +123,6 @@ function document_name(corpus::Corpus, index::Integer)
 	corpus_document_name(corpus.pointer, index)
 end
 
-function document_name(corpus::Corpus, hit::Hit)
-	something(corpus_document_name(corpus.pointer, hit.document_index), "?")
-end
-
 function document_name(hitlist::HitList, i::Integer)
 	something(corpus_document_name(hitlist.corpus.pointer, hitlist.document_indices[i]), "?")
 end

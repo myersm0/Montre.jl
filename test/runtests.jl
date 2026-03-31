@@ -4,22 +4,6 @@ using DataFrames
 import Tables
 
 @testset "Montre.jl" begin
-	@testset "Hit basics" begin
-		hit = Hit(10:14, 0, 3)
-		@test first(hit.span) == 10
-		@test last(hit.span) == 14
-		@test length(hit.span) == 5
-		@test hit.document_index == 0
-		@test hit.sentence_index == 3
-	end
-
-	@testset "Hit show" begin
-		hit = Hit(10:14, 0, 3)
-		r = repr(hit)
-		@test contains(r, "10:14")
-		@test contains(r, "doc=0")
-	end
-
 	@testset "Concordance Tables.jl" begin
 		line = ConcordanceLine("le vieux", "chat", "dormait", "poeme.conllu", 100)
 		@test Tables.getcolumn(line, :match_text) == "chat"
@@ -69,12 +53,9 @@ import Tables
 			Montre.open(corpus_path) do corpus
 				hits = query(corpus, """[pos="NOUN"]""")
 				@test length(hits) > 0
-				@test hits[1] isa Hit
-				@test hits[1].document_index isa Integer
 
 				collected = collect(Iterators.take(hits, 3))
 				@test length(collected) == 3
-				@test all(h -> h isa Hit, collected)
 
 				@test count(corpus, """[pos="NOUN"]""") == length(hits)
 			end
@@ -209,7 +190,6 @@ import Tables
 
 				@test projected isa HitList
 				@test length(projected) > 0
-				@test projected[1] isa Hit
 			end
 			close(corpus)
 		end

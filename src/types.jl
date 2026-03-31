@@ -33,13 +33,6 @@ struct Alignment
 end
 
 
-struct Hit
-	span::UnitRange{Int}
-	document_index::Int
-	sentence_index::Int
-end
-
-
 struct CaptureStore
 	names::Vector{String}
 	starts::Dict{String, Vector{Int}}
@@ -50,7 +43,7 @@ CaptureStore() = CaptureStore(String[], Dict{String, Vector{Int}}(), Dict{String
 Base.isempty(store::CaptureStore) = isempty(store.names)
 
 
-mutable struct HitList <: AbstractVector{Hit}
+mutable struct HitList
 	pointer::Ptr{Nothing}
 	corpus::Corpus
 	starts::Vector{Int}
@@ -59,7 +52,9 @@ mutable struct HitList <: AbstractVector{Hit}
 	sentence_indices::Vector{Int}
 	capture_store::CaptureStore
 
-	function HitList(pointer, corpus, starts, ends, document_indices, sentence_indices, capture_store)
+	function HitList(
+			pointer, corpus, starts, ends, document_indices, sentence_indices, capture_store
+		)
 		hitlist = new(
 			pointer, corpus, starts, ends,
 			document_indices, sentence_indices,
@@ -76,15 +71,7 @@ mutable struct HitList <: AbstractVector{Hit}
 end
 
 Base.size(hitlist::HitList) = (length(hitlist.starts),)
-
-function Base.getindex(hitlist::HitList, i::Int)
-	@boundscheck checkbounds(hitlist, i)
-	Hit(
-		hitlist.starts[i]:hitlist.ends[i] - 1,
-		hitlist.document_indices[i],
-		hitlist.sentence_indices[i],
-	)
-end
+Base.length(hitlist::HitList) = length(hitlist.starts)
 
 
 struct HitRow

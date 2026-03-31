@@ -22,10 +22,6 @@ function Base.show(io::IO, alignment::Alignment)
 	print(io, "Alignment(\"$(alignment.name)\", $(alignment.source) → $(alignment.target), $(alignment.edge_count) edges)")
 end
 
-function Base.show(io::IO, hit::Hit)
-	print(io, "Hit($(first(hit.span)):$(last(hit.span)), doc=$(hit.document_index))")
-end
-
 
 ## HitList
 
