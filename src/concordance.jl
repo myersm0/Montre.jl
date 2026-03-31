@@ -136,7 +136,7 @@ cooccurrences(hitlist::HitList; kwargs...) =
 	cooccurrences(hitlist.corpus, hitlist; kwargs...)
 
 cooccurrences(corpus::Corpus, cql::CQL; kwargs...) = 
-	collocates(corpus, cql.query; kwargs...)
+	cooccurrences(corpus, cql.query; kwargs...)
 
 
 
