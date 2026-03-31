@@ -161,7 +161,7 @@ Labels can capture variable-length spans, including gaps between anchors:
 
 ```julia
 hits = query(corpus,
-    CQL("a:[pos='NOUN'] gap:[]{0,15} b:[pos='NOUN'] :: a.lemma = b.lemma within s");
+    CQL("a:[pos='NOUN'] gap:[]{0,15} b:[pos='NOUN'] within s :: a.lemma = b.lemma");
     component = "maupassant-fr",
 )
 
