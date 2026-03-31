@@ -6,10 +6,6 @@ Julia bindings for **[montre](https://github.com/myersm0/montre)**, a fast, embe
 
 Montre.jl lets you analyze linguistic corpora using CQL queries directly from Julia, without any server, daemon, or external process. The query engine runs in-process via a Rust shared library.
 
-## Status
-
-**Early prototype.** The API is functional but subject to change.
-
 ## Installation
 
 Install the montre engine:
@@ -31,12 +27,12 @@ Pkg.build("Montre")
 
 ```julia
 using Montre
-using DataFrames
 
 corpus = Montre.open("./my-corpus")
 
 hits = query(corpus, cql"[pos='ADJ'] [pos='NOUN']")
 concordance(hits; limit = 10)
+frequency(hits; by = :lemma)
 
 close(corpus)
 ```
@@ -53,7 +49,7 @@ documents(corpus)
 components(corpus)        # subcorpora with per-component token counts
 alignments(corpus)        # alignment relations with layer info and edge counts
 span_layers(corpus)       # sentence, document, paragraph, ...
-vocabulary(corpus, :pos)
+vocabulary(corpus, :pos)  # all values for a layer
 ```
 
 Counting with filters:
@@ -75,12 +71,37 @@ hits = query(corpus, cql"[lemma='être' & pos='VERB']")
 hits = query(corpus, cql"[lemma=/^(noir|blanc|rouge)$/]")
 ```
 
-`HitList` is an `AbstractVector{Hit}`. A `Hit` itself, however, is opaque to the user. 
+`query` returns a `HitList` — an opaque container of matches with `length`. Interact with it through `concordance`, `frequency`, `extract`, `collocates`, `tokens`, and `project`.
 
+## Concordance
+
+```julia
+concordance(corpus, cql"[lemma='âme']"; context = 5, limit = 10)
+concordance(hits; limit = 20)
+```
+
+```
+allouma.conllu     les coins sombres de l' âme . -- Mais les femmes
+allouma.conllu  nous appartenaient corps… âme . Je lui dis :
+```
+
+Concordances implement Tables.jl, so `DataFrame(concordance(hits))` works directly.
+
+## Frequency and collocates
+
+```julia
+frequency(hits)                   # by joined word text (default)
+frequency(hits; by = :lemma)      # by lemma
+
+collocates(hits; window = 5, layer = :lemma)            # positional: (token, position, count)
+cooccurrences(hits; window = 5, layer = :lemma)          # bag-of-words: (token, count)
+```
+
+Both `frequency` and `collocates` return vectors of named tuples.
 
 ## Extracting data
 
-`extract` is the bridge between corpus results and DataFrames. It takes a `HitList`, a sink type, and column specs describing what to extract and how to reduce each span to a value:
+`extract` bridges corpus results and DataFrames. It takes a `HitList`, a sink type, and column specs describing what to extract and how to reduce each span to a value:
 
 ```julia
 using DataFrames
@@ -102,7 +123,6 @@ Spec forms:
 | Form | Meaning |
 |------|---------|
 | `:word => collect` | Fetch layer, apply function, auto-name column `:word` |
-| `:word => collect => :text` | Same, but name the column `:text` |
 | `(x -> ...) => :name` | Lambda with explicit column name |
 | `:document` | Structural field (`:document`, `:width`, `:start`, `:stop`, `:sentence_index`) |
 
@@ -112,15 +132,23 @@ For a single column without DataFrame overhead:
 
 ```julia
 extract(hits, Vector, :word => join)    # Vector{String}
+extract(hits, Vector, :document)        # Vector{String}
 ```
 
 ## Labeled captures
 
-CQL labels mark subspans within a match. Access them through the lambda form in `extract`:
+CQL labels mark subspans within a match:
 
 ```julia
 pairs = query(corpus, CQL("a:[pos='NOUN'] [lemma='et'] b:[pos='NOUN']"))
 
+captures(pairs)            # ["a", "b"]
+captures(pairs, "a")       # Vector{UnitRange{Int}} of capture spans
+```
+
+Access capture content through the lambda form in `extract`:
+
+```julia
 extract(
     pairs, DataFrame,
     (x -> first(x["a", :lemma])) => :left,
@@ -129,11 +157,11 @@ extract(
 )
 ```
 
-Labels can also capture variable-length spans, including gaps between anchors:
+Labels can capture variable-length spans, including gaps between anchors:
 
 ```julia
 hits = query(corpus,
-    CQL("a:[pos='NOUN' & feats.Number='Sing'] gap:[]{0,15} b:[pos='NOUN' & feats.Number='Plur'] :: a.lemma = b.lemma within s");
+    CQL("a:[pos='NOUN'] gap:[]{0,15} b:[pos='NOUN'] :: a.lemma = b.lemma within s");
     component = "maupassant-fr",
 )
 
@@ -144,16 +172,6 @@ extract(
     (x -> x["gap", :pos]) => :gap_pos,
     :width,
 )
-```
-
-On a `Hit` object, captures are accessible by name:
-
-```julia
-hit = echoes[1]
-hit["a"]               # UnitRange for the capture span
-hit["b"]
-haskey(hit, "gap")     # true
-keys(hit)              # ["a", "gap", "b"]
 ```
 
 ## DataFrames workflows
@@ -193,7 +211,7 @@ end
 Vector-valued columns from `collect` can be expanded with `flatten`:
 
 ```julia
-gap_df = extract(echoes, DataFrame,
+gap_df = extract(hits, DataFrame,
     (x -> first(x["a", :lemma])) => :lemma,
     (x -> x["gap", :word]) => :gap_words,
     (x -> x["gap", :pos]) => :gap_pos,
@@ -207,51 +225,38 @@ exploded = flatten(gap_df, [:gap_words, :gap_pos])
 end
 ```
 
-## Concordance
+## Per-token annotation
+
+Individual hits can be inspected as [UniversalDependencies.jl](https://github.com/JuliaText/UniversalDependencies.jl) nodes:
 
 ```julia
-concordance(corpus, cql"[lemma='âme']"; context = 5, limit = 10)
-concordance(hits; limit = 20)
-```
+using UniversalDependencies
 
-```
-allouma.conllu     les coins sombres de l' âme . -- Mais les femmes
-allouma.conllu  nous appartenaient corps… âme . Je lui dis :
-```
-
-Concordances implement Tables.jl, so `DataFrame(concordance(hits))` works directly.
-
-## Frequency
-
-```julia
-frequency(hits)                         # by joined word text, default
-frequency(hits; by = :lemma => join)    # by joined lemma
-frequency(hits; by = :pos => collect)   # by POS sequence
-```
-
-## Collocates
-
-```julia
-collocates(hits; window = 5, layer = :lemma)
-collocates(hits; window = 5, layer = :lemma, positional = true)
+nodes = tokens(hits, 1)
+UD.form(nodes[1])
+UD.upos(nodes[1])
+UD.feats(nodes[1])
 ```
 
 ## Alignment projection
 
-Query one language and see the aligned translations:
+Query one language and project to aligned translations:
 
 ```julia
 ame = query(corpus, cql"[lemma='âme']"; component = "maupassant-fr")
 projected = project(ame, "labse")
 
 projected isa HitList      # true
-is_projection(projected)   # true
-projected.projected        # number of projected hits
-projected.unmapped         # source hits not locatable
-projected.no_alignment     # source hits with no alignment edge
-
 concordance(projected; limit = 10)
-extract(projected, DataFrame, :word => join, :document)
+frequency(projected; by = :lemma)
+```
+
+All the same operations — `extract`, `concordance`, `frequency`, `collocates` — work on projected results.
+
+Inspect raw alignment edges:
+
+```julia
+edges(corpus, "labse")     # Vector of (source_document, source_sentence, ...) tuples
 ```
 
 ## CQL query strings
@@ -264,7 +269,7 @@ query(corpus, cql"[lemma='être' & pos='VERB']")
 query(corpus, cql"[lemma=/^(bleu|blanc)$/]")
 ```
 
-For dynamic queries with interpolation, use the `CQL()` constructor:
+For dynamic queries, use the `CQL()` constructor:
 
 ```julia
 lemma = "fleur"
@@ -289,15 +294,19 @@ Montre.open("./my-corpus") do corpus
 end
 ```
 
+The `do`-block form closes the corpus automatically. Julia's GC finalizer will also clean up, but explicit `close` or `do`-blocks are preferred.
+
 ## How it works
 
-`query` runs the CQL query in the Rust engine and returns a `HitList` — a Julia `AbstractVector{Hit}` backed by a fully materialized result set on the Rust side. Hit positions, document indices, and capture spans are extracted in bulk via the FFI immediately after the query.
+`query` runs CQL in the Rust engine and returns a `HitList`. Hit positions, document indices, sentence indices, and capture spans are extracted in bulk via the C FFI immediately after the query.
 
-`extract` is the bridge between the engine and DataFrames. Each column spec describes which layer or structural field to fetch and how to reduce a multi-token span to a per-hit value. Layer data is fetched from the Rust forward index on demand — only the layers you ask for are touched.
+`extract` fetches annotation data from the Rust forward index on demand — only the layers you ask for are touched. Each column spec describes which layer or structural field to fetch and how to reduce a multi-token span to a per-hit value.
 
-`project` returns a `HitList` with additional diagnostic fields (`projected`, `unmapped`, `no_alignment`). All the same operations — `extract`, `concordance`, `frequency`, `collocates` — work identically on projected results.
+`project` maps hits from one component to another through named alignment relations, returning a new `HitList` in the target component.
 
-`close(corpus)` frees the Rust-side resources. Julia's garbage collector will clean up eventually, but `do`-blocks or explicit `close` are preferred.
+## Known limitations
+
+Document names are not guaranteed unique across components in a parallel corpus (the same source file may appear in both French and English components). Full `(component, document)` disambiguation is planned for the next release.
 
 ## Requirements
 
