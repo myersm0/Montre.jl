@@ -10,8 +10,8 @@ UniversalDependencies = "aa815940-ac17-4642-b6b9-9c066aae69b2"
 
 [compat]
 Tables = "1"
+UniversalDependencies = "0.2.0"
 julia = "1.10.10"
-
 [extras]
 LazyArtifacts = "4af54fe1-eca0-43a8-85a7-787d91b784e3"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
