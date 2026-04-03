@@ -74,7 +74,8 @@ import Tables
 		ls = layers(corpus)
 		@test "word" in ls
 		@test "lemma" in ls
-		@test "pos" in ls
+		@test "upos" in ls
+		@test "xpos" in ls
 
 		docs = documents(corpus)
 		@test length(docs) > 0
@@ -97,7 +98,7 @@ import Tables
 		@test "sentence" in sls
 		@test "document" in sls
 
-		pos_vocab = vocabulary(corpus, :pos)
+		pos_vocab = vocabulary(corpus, :upos)
 		@test "NOUN" in pos_vocab
 		@test "VERB" in pos_vocab
 	end
