@@ -177,6 +177,90 @@ function edges(corpus::Corpus, alignment::AbstractString)
 end
 
 
+## alignment analysis
+
+function alignment_coverage(corpus::Corpus, alignment_name::AbstractString)
+	raw = corpus_alignment_coverage(corpus.pointer, alignment_name)
+	map(1:length(raw.doc_indices)) do i
+		doc_idx = raw.doc_indices[i]
+		name = something(document_name(corpus, doc_idx), "?")
+		aligned = raw.aligned[i]
+		total = raw.total[i]
+		coverage = total > 0 ? aligned / total : 0.0
+		(; document = name, aligned_sentences = aligned, total_sentences = total, coverage)
+	end
+end
+
+function paired_documents(corpus::Corpus, alignment_name::AbstractString)
+	aligns = alignments(corpus)
+	al_idx = findfirst(a -> a.name == alignment_name, aligns)
+	al_idx === nothing && error("Montre: alignment not found: $alignment_name")
+	meta = aligns[al_idx]
+
+	source_range = document_range(corpus, meta.source)
+	target_range = document_range(corpus, meta.target)
+
+	edge_data = edges(corpus, alignment_name)
+	pairings = Dict{Int, Set{Int}}()
+	for e in edge_data
+		if !haskey(pairings, e.source_document)
+			pairings[e.source_document] = Set{Int}()
+		end
+		push!(pairings[e.source_document], e.target_document)
+	end
+
+	map(sort(collect(keys(pairings)))) do src_doc
+		tgt_doc = first(pairings[src_doc])
+		src_global = first(source_range) + src_doc
+		tgt_global = first(target_range) + tgt_doc
+
+		src_name = something(document_name(corpus, src_global), "?")
+		tgt_name = something(document_name(corpus, tgt_global), "?")
+		src_tokens = length(span_at(corpus, "document", src_global))
+		tgt_tokens = length(span_at(corpus, "document", tgt_global))
+
+		(; source = src_name, target = tgt_name,
+			source_tokens = src_tokens, target_tokens = tgt_tokens,
+			ratio = tgt_tokens / src_tokens)
+	end
+end
+
+function unaligned_sentences(corpus::Corpus, alignment_name::AbstractString, document::AbstractString;
+		component = nothing,
+	)
+	aligns = alignments(corpus)
+	al_idx = findfirst(a -> a.name == alignment_name, aligns)
+	al_idx === nothing && error("Montre: alignment not found: $alignment_name")
+	meta = aligns[al_idx]
+
+	source_comp = component !== nothing ? component : meta.source
+	comp_idx = component_index(corpus, source_comp)
+	source_range = document_range(corpus, source_comp)
+	doc_global = resolve_document(corpus, document; component = source_comp)
+	doc_within = doc_global - first(source_range)
+
+	total = sentence_count(corpus; component = source_comp, document = document)
+
+	edge_data = edges(corpus, alignment_name)
+	aligned = Set{Int}()
+	for e in edge_data
+		if e.source_document == doc_within
+			push!(aligned, e.source_sentence)
+		end
+	end
+
+	map(filter(i -> i ∉ aligned, 0:total - 1)) do sent_idx
+		result = corpus_sentence_span(corpus.pointer, comp_idx, doc_within, sent_idx)
+		if result !== nothing
+			text = something(span_text(corpus, result.span), "")
+			(; sentence_index = sent_idx, span = result.span, text)
+		else
+			(; sentence_index = sent_idx, span = 0:-1, text = "")
+		end
+	end
+end
+
+
 ## spans
 
 function span_layers(corpus::Corpus)
@@ -192,6 +276,16 @@ end
 
 function span_containing(corpus::Corpus, layer::Layer, position::Integer)
 	corpus_span_containing(corpus.pointer, String(layer), position)
+end
+
+function sentence_span(corpus::Corpus, component::AbstractString, document::AbstractString, sentence_within_doc::Integer)
+	comp_idx = component_index(corpus, component)
+	source_range = document_range(corpus, component)
+	doc_global = resolve_document(corpus, document; component)
+	doc_within = doc_global - first(source_range)
+	result = corpus_sentence_span(corpus.pointer, comp_idx, doc_within, sentence_within_doc)
+	result === nothing && error("Montre: sentence not found (doc=$document, sent=$sentence_within_doc)")
+	return result.span
 end
 
 

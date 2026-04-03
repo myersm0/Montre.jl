@@ -289,6 +289,22 @@ function corpus_span_count_in_range(pointer::Ptr{Nothing}, layer::AbstractString
 	return Int(result)
 end
 
+function corpus_sentence_span(
+		pointer::Ptr{Nothing}, component_index::Integer,
+		doc_within_component::Integer, sentence_within_doc::Integer,
+	)
+	out_start = Ref{UInt64}(0)
+	out_end = Ref{UInt64}(0)
+	result = ccall(
+		(:montre_corpus_sentence_span, libmontre), Int64,
+		(Ptr{Nothing}, UInt32, UInt32, UInt32, Ptr{UInt64}, Ptr{UInt64}),
+		pointer, UInt32(component_index), UInt32(doc_within_component),
+		UInt32(sentence_within_doc), out_start, out_end,
+	)
+	result < 0 && return nothing
+	return (; index = Int(result), span = Int(out_start[]):Int(out_end[]) - 1)
+end
+
 # ---- query ----
 
 function query(pointer::Ptr{Nothing}, cql::AbstractString)
@@ -551,6 +567,24 @@ function corpus_alignment_edges(pointer::Ptr{Nothing}, name::AbstractString)
 	n = Int(out_len[])
 	flat = take_u32_array(array, n * 4)
 	return flat, n
+end
+
+function corpus_alignment_coverage(pointer::Ptr{Nothing}, alignment_name::AbstractString)
+	out_doc_indices = Ref{Ptr{UInt32}}(C_NULL)
+	out_aligned = Ref{Ptr{UInt32}}(C_NULL)
+	out_total = Ref{Ptr{UInt32}}(C_NULL)
+	out_len = Ref{UInt64}(0)
+	ok = ccall(
+		(:montre_corpus_alignment_coverage, libmontre), Int32,
+		(Ptr{Nothing}, Cstring, Ptr{Ptr{UInt32}}, Ptr{Ptr{UInt32}}, Ptr{Ptr{UInt32}}, Ptr{UInt64}),
+		pointer, alignment_name, out_doc_indices, out_aligned, out_total, out_len,
+	)
+	ok == 0 && return (; doc_indices = Int[], aligned = Int[], total = Int[])
+	n = Int(out_len[])
+	doc_indices = take_u32_array(out_doc_indices[], n)
+	aligned = take_u32_array(out_aligned[], n)
+	total = take_u32_array(out_total[], n)
+	return (; doc_indices, aligned, total)
 end
 
 # ---- projection ----
