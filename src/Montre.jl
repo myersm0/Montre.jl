@@ -3,16 +3,7 @@ module Montre
 using DataFrames
 using Tables
 using UniversalDependencies
-
-const deps_file = joinpath(@__DIR__, "..", "deps", "deps.jl")
-if isfile(deps_file)
-	include(deps_file)
-else
-	error(
-		"Montre not built. Run: julia $(joinpath(@__DIR__, "..", "deps", "build.jl"))\n" *
-		"Or set MONTRE_ROOT and run: using Pkg; Pkg.build(\"Montre\")"
-	)
-end
+using Montre_jll
 
 const exiting = Ref(false)
 atexit(() -> exiting[] = true)
