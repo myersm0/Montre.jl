@@ -4,24 +4,23 @@
 
 Julia bindings for **[montre](https://github.com/myersm0/montre)**, a fast, embeddable query engine for annotated and parallel corpora.
 
-Montre.jl lets you analyze linguistic corpora using CQL queries directly from Julia, without any server, daemon, or external process. The query engine runs in-process via a Rust shared library.
+Montre.jl lets you query, extract, and compare linguistic corpora directly from Julia — including alignment projection across parallel texts — without any server, daemon, or external process. The query engine runs in-process via a Rust shared library.
 
 ## Installation
-
-Install the montre engine:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/myersm0/montre/main/install.sh | sh
-```
-
-Then in Julia, set `MONTRE_ROOT` to the montre Rust workspace root and build:
+With Julia version 1.10 or greater:
 
 ```julia
-ENV["MONTRE_ROOT"] = expanduser("~/path/to/montre")
 using Pkg
-Pkg.develop(path="path/to/Montre.jl")
-Pkg.build("Montre")
+Pkg.add(url="https://github.com/myersm0/Montre.jl")
 ```
+
+## How it works
+
+`query` runs CQL in the Rust engine and returns a `HitList`. Hit positions, document indices, sentence indices, and capture spans are extracted in bulk via the C FFI immediately after the query.
+
+`extract` fetches annotation data from the Rust forward index on demand — only the layers you ask for are touched. Each column spec describes which layer or structural field to fetch and how to reduce a multi-token span to a per-hit value.
+
+`project` maps hits from one component to another through named alignment relations, returning a new `HitList` in the target component.
 
 ## Quick start
 
@@ -227,7 +226,7 @@ end
 
 ## Per-token annotation
 
-Individual hits can be inspected as [UniversalDependencies.jl](https://github.com/JuliaText/UniversalDependencies.jl) nodes:
+Individual hits can be inspected as [UniversalDependencies.jl](https://github.com/myersm0/UniversalDependencies.jl) nodes:
 
 ```julia
 using UniversalDependencies
@@ -253,10 +252,34 @@ frequency(projected; by = :lemma)
 
 All the same operations — `extract`, `concordance`, `frequency`, `collocates` — work on projected results.
 
-Inspect raw alignment edges:
+## Alignment analysis
+Montre.jl includes helpers for studying translation coverage and detecting omissions in parallel corpora:
 
 ```julia
-edges(corpus, "labse")     # Vector of (source_document, source_sentence, ...) tuples
+# which documents pair across components, and how do their sizes compare?
+paired = paired_documents(corpus, "labse")
+# -> [(; source, target, source_tokens, target_tokens, ratio), ...]
+
+# per-document alignment coverage (fraction of sentences with an alignment edge)
+coverage = alignment_coverage(corpus, "labse")
+# -> [(; document, aligned_sentences, total_sentences, coverage), ...]
+
+# find sentences in a document that have no alignment edge (omissions, gaps)
+missing = unaligned_sentences(corpus, "labse", "allouma.conllu")
+# -> [(; sentence_index, span, text), ...]
+
+# resolve a specific sentence to its token span
+sentence_span(corpus, "maupassant-fr", "allouma.conllu", 5)
+# -> 234:251
+```
+
+All return vectors of named tuples, so `DataFrame(paired_documents(corpus, "labse"))` works directly.
+
+```julia
+using DataFrames
+
+df = DataFrame(paired_documents(corpus, "labse"))
+sort!(df, :ratio)    # most abridged translations first
 ```
 
 ## CQL query strings
@@ -296,22 +319,13 @@ end
 
 The `do`-block form closes the corpus automatically. Julia's GC finalizer will also clean up, but explicit `close` or `do`-blocks are preferred.
 
-## How it works
-
-`query` runs CQL in the Rust engine and returns a `HitList`. Hit positions, document indices, sentence indices, and capture spans are extracted in bulk via the C FFI immediately after the query.
-
-`extract` fetches annotation data from the Rust forward index on demand — only the layers you ask for are touched. Each column spec describes which layer or structural field to fetch and how to reduce a multi-token span to a per-hit value.
-
-`project` maps hits from one component to another through named alignment relations, returning a new `HitList` in the target component.
-
 ## Known limitations
 
-Document names are not guaranteed unique across components in a parallel corpus (the same source file may appear in both French and English components). Full `(component, document)` disambiguation is planned for the next release.
+Document names may not be unique across components in a parallel corpus. Use `(component, document)` pairs for unambiguous identification; convenience helpers for this are planned.
 
 ## Requirements
 
 - Julia 1.10+
-- Montre engine ([install](https://github.com/myersm0/montre))
 - A montre corpus (built with `montre build` or `Montre.build`)
 
 ## License
